@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { t } from '~/i18n';
 	import { modelMeta, tokens, rootRem } from '~/store';
 	import * as d3 from 'd3';
 	import { gsap } from '~/utils/gsap';
 	import Matrix from '~/components/common/Matrix.svelte';
+	import type { MatrixCellHandler, MatrixColorScale, MatrixSvgHandler } from '~/utils/matrixTypes';
 	import { onDestroy, onMount } from 'svelte';
 	import resolveConfig from 'tailwindcss/resolveConfig';
 	import tailwindConfig from '../../../tailwind.config';
@@ -49,37 +51,37 @@
 		);
 
 	// color scale
-	const embeddingColorScale = (d, i) => {
+	const embeddingColorScale: MatrixColorScale = (d, i) => {
 		return d3.interpolate(theme.colors['gray'][100], theme.colors['gray'][400])(d);
 	};
 
-	const qkvColorScale = (d, i) => {
-		let color = i < visibleDimension ? 'blue' : i < visibleDimension * 2 ? 'red' : 'green';
+	const qkvColorScale: MatrixColorScale = (d, i) => {
+		const color = i < visibleDimension ? 'blue' : i < visibleDimension * 2 ? 'red' : 'green';
 		return d3.interpolate(theme.colors[color][100], theme.colors[color][400])(d);
 	};
 
 	// animation
 	let isAnimationActive = false;
 	let progress = 0;
-	let timeline = gsap.timeline();
+	let timeline: GSAPTimeline = gsap.timeline();
 
+	let animationStartTimeout: ReturnType<typeof setTimeout> | undefined;
 	onMount(() => {
 		timeline.eventCallback('onUpdate', () => {
 			progress = timeline.progress();
 			if (progress === 1) isAnimationActive = false;
 		});
 
-		setTimeout(() => {
+		animationStartTimeout = setTimeout(() => {
+			animationStartTimeout = undefined;
 			isAnimationActive = true;
 			draw();
 		}, 300);
 	});
 
 	onDestroy(() => {
-		if (timeline) {
-			timeline.kill();
-			timeline = null;
-		}
+		if (animationStartTimeout !== undefined) clearTimeout(animationStartTimeout);
+		timeline.kill();
 	});
 
 	const draw = () => {
@@ -292,12 +294,12 @@
 	let highlightCol: number | undefined = undefined;
 	let highlightRow: number | undefined = undefined;
 
-	const onMouseOverCell = (e, d) => {
+	const onMouseOverCell: MatrixCellHandler = (_event, d) => {
 		if (isAnimationActive) return;
 		highlightRow = d.rowIndex;
 		highlightCol = d.colIndex;
 	};
-	const onMouseOutSvg = () => {
+	const onMouseOutSvg: MatrixSvgHandler = () => {
 		highlightCol = undefined;
 		highlightRow = undefined;
 	};
@@ -308,7 +310,7 @@
 	// };
 </script>
 
-<WeightPopoverCard id="qkv" title={'Query Key Value'} bind:isAnimationActive {timeline}>
+<WeightPopoverCard id="qkv" title={$t('popover.qkv.title')} bind:isAnimationActive {timeline}>
 	<div class="weight-popover-content flex items-center justify-start">
 		<div class="matrix flex flex-col items-center">
 			<div class="tokens" style={`gap:${tokenGap}px`}>
@@ -319,8 +321,8 @@
 		</div>
 		<div class="matrix flex flex-col items-center">
 			<div class="title flex items-center gap-1 self-end">
-				Embeddings<HelpPopover id="qkv-emgeddings" 
-					>{`Embeddings originate from tokens \nbut evolve through blocks, becoming \nabstract representations.`}</HelpPopover
+				{$t('popover.embeddings')}<HelpPopover id="qkv-emgeddings"
+					>{$t('popover.qkv.embeddingsHelp')}</HelpPopover
 				>
 			</div>
 			<!-- (tokenLen, 768) -->
@@ -339,8 +341,8 @@
 		<div class="operator"><div class="symbol mul">&times;</div></div>
 		<div class="matrix flex flex-col items-center">
 			<div class="title flex items-center gap-1">
-				Q·K·V Weights<HelpPopover id="qkv-weights" 
-					>{`Transforms embedding vectors into Query, Key, and Value vectors. \nParameters tha learned in training, fixed in prediction.`}</HelpPopover
+				{$t('popover.qkv.weights')}<HelpPopover id="qkv-weights"
+					>{$t('popover.qkv.weightsHelp')}</HelpPopover
 				>
 			</div>
 			<div class="flex gap-0">
@@ -362,8 +364,7 @@
 		<div class="operator"><div class="symbol plus">+</div></div>
 		<div class="matrix flex flex-col items-center">
 			<div class="title flex items-center gap-1">
-				Q·K·V Bias<HelpPopover id="qkv-bias" 
-					>{`Offsets added after transformation. \nParameters that learned in training, fixed in prediction.`}</HelpPopover
+				{$t('popover.qkv.bias')}<HelpPopover id="qkv-bias">{$t('popover.qkv.biasHelp')}</HelpPopover
 				>
 			</div>
 			<Matrix
@@ -388,7 +389,7 @@
 			</div>
 		</div>
 		<div class="matrix flex flex-col items-center">
-			<div class="title">Q·K·V</div>
+			<div class="title">{$t('popover.qkv.result')}</div>
 			<div class="flex">
 				<Matrix
 					className="qkv-output"

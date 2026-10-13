@@ -1,17 +1,18 @@
 <script lang="ts">
-	import { Card } from 'flowbite-svelte';
-	import { CloseOutline } from 'flowbite-svelte-icons';
+	import Card from 'flowbite-svelte/Card.svelte';
+	import CloseOutline from 'flowbite-svelte-icons/CloseOutline.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { userId, weightPopover } from '~/store';
+	import { t } from '~/i18n';
 
 	export let id: string;
 	export let title: string;
 	export let className: string | undefined = undefined;
 	export let isAnimationActive: boolean = false;
-	export let timeline;
+	export let timeline: GSAPTimeline | undefined;
 	export let isOpen: boolean = true;
 
-	let startTime;
+	let startTime: number | undefined;
 
 	onMount(() => {
 		startTime = performance.now();
@@ -23,8 +24,8 @@
 		});
 	});
 	onDestroy(() => {
-		let endTime = performance.now();
-		let visibleDuration = endTime - startTime;
+		const endTime = performance.now();
+		const visibleDuration = startTime === undefined ? 0 : endTime - startTime;
 
 		window.dataLayer?.push({
 			event: 'visibility-hide',
@@ -51,9 +52,11 @@
 			{#if isAnimationActive}
 				<button
 					class="play-control forward"
+					aria-label={$t('popover.finishAnimation')}
 					data-click="matrix-calc-forward-btn"
 					on:click={(e) => {
 						e.stopPropagation();
+						if (!timeline) return;
 						timeline.progress(1);
 						isAnimationActive = false;
 					}}
@@ -76,9 +79,11 @@
 			{:else}
 				<button
 					class="play-control restart"
+					aria-label={$t('popover.restartAnimation')}
 					data-click="matrix-calc-restart-btn"
 					on:click={(e) => {
 						e.stopPropagation();
+						if (!timeline) return;
 						isAnimationActive = true;
 						timeline.restart();
 					}}
@@ -104,12 +109,13 @@
 			{/if}
 			<button
 				class="close"
+				aria-label={$t('popover.close')}
 				data-click="matrix-calc-close-btn"
 				on:click={(e) => {
 					e.stopPropagation();
 					weightPopover.set(null);
 					isOpen = false;
-				}}><CloseOutline class="h-5 w-5 text-gray-500" /></button
+				}}><CloseOutline class="h-5 w-5 text-gray-500" aria-hidden="true" /></button
 			>
 		</div>
 	</div>

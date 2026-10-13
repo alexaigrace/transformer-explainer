@@ -7,13 +7,13 @@
 	import resolveConfig from 'tailwindcss/resolveConfig';
 	const { theme } = resolveConfig(tailwindConfig);
 
-	export let rowHeight;
-	export let rowGap;
+	export let rowHeight: number;
+	export let rowGap: number;
 	export let hoveredIndex: number | null = null;
 
 	const barHeight = 4;
 
-	let svgEl: HTMLOrSVGElement;
+	let svgEl: SVGSVGElement | undefined;
 
 	let percentPrecision = 2;
 
@@ -21,14 +21,18 @@
 	let hoverColor = theme.colors.purple[400];
 
 	export let drawBars = () => {
-		const data = $modelData?.probabilities;
+		const element = svgEl;
+		if (!element?.isConnected) return;
 
-		const svg = d3.select(svgEl);
+		const data = $modelData?.probabilities ?? [];
 
-		let xScale = d3
+		const svg = d3.select(element);
+		const maxProbability = d3.max(data, (d) => d.probability) ?? 0;
+
+		const xScale = d3
 			.scaleLinear()
-			.domain([0, d3.max(data, (d) => d.probability)])
-			.range([0, svgEl?.clientWidth - rootRem * 3]);
+			.domain([0, maxProbability])
+			.range([0, element.clientWidth - rootRem * 3]);
 
 		const groups = svg
 			.selectAll('g.probability')
@@ -95,8 +99,8 @@
 					};
 				}
 				const i = d3.interpolateNumber(
-					that.text().replace('%', '').replace('<', ''),
-					(d.probability * 100).toFixed(percentPrecision)
+					Number(that.text().replace('%', '').replace('<', '')),
+					Number((d.probability * 100).toFixed(percentPrecision))
 				);
 				return function (t) {
 					let text = i(t).toFixed(percentPrecision) + '%';
@@ -126,8 +130,9 @@
 
 	// for hover and sampling
 	const updateColor = () => {
-		if (!svgEl) return;
-		const svg = d3.select(svgEl);
+		const element = svgEl;
+		if (!element?.isConnected) return;
+		const svg = d3.select(element);
 		const groups = svg.selectAll('g.probability');
 
 		groups.each(function (d, i) {

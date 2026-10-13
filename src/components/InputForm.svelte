@@ -1,14 +1,18 @@
 <script lang="ts">
-	import { Dropdown, DropdownItem, ButtonGroup } from 'flowbite-svelte';
+	import Dropdown from 'flowbite-svelte/Dropdown.svelte';
+	import DropdownItem from 'flowbite-svelte/DropdownItem.svelte';
+	import ButtonGroup from 'flowbite-svelte/ButtonGroup.svelte';
 	import Temperature from './Temperature.svelte';
 
-	import { ChevronDownOutline } from 'flowbite-svelte-icons';
+	import ChevronDownOutline from 'flowbite-svelte-icons/ChevronDownOutline.svelte';
+	import { onDestroy } from 'svelte';
 	import {
 		inputText,
 		isModelRunning,
 		predictedToken,
 		inputTextExample,
 		isFetchingModel,
+		isTokenizerReady,
 		expandedBlock,
 		selectedExampleIdx,
 		isLoaded,
@@ -20,18 +24,26 @@
 		blockIdx,
 		temperature,
 		tokenIds,
-		userId
+		userId,
+		modelSession,
+		modelLoading,
+		inferenceError
 	} from '~/store';
 	import LoadingDots from './common/LoadingDots.svelte';
 	import classNames from 'classnames';
 	import Sampling from './Sampling.svelte';
 	import { completeCurrentAnimation } from '~/utils/animation';
 	import { textPages } from '~/utils/textbookPages';
+	import { t } from '~/i18n';
 
 	let inputRef: HTMLDivElement;
 	let predictRef: HTMLDivElement;
 
 	let useCustomInput = false;
+	let submitTimeout: number | undefined;
+	onDestroy(() => {
+		if (submitTimeout !== undefined) window.clearTimeout(submitTimeout);
+	});
 
 	$: inputTextTemp = $inputText || '';
 
@@ -41,7 +53,7 @@
 	$: exceedLimit = inputTextTemp.split(' ').length >= wordLimit;
 
 	// Text input
-	const onFocusInput = (e) => {
+	const onFocusInput = () => {
 		let formattedString = (inputTextTemp + predictedTokenTemp).replace(/[\s\n]+/g, ' ');
 
 		inputTextTemp = formattedString;
@@ -52,17 +64,21 @@
 		inputRef.innerText = inputTextTemp;
 	};
 
-	const onInput = (e) => {
+	const onInput = () => {
 		inputTextTemp = inputRef.innerText;
 	};
 
-	const handleSubmit = (e) => {
+	const handleSubmit = (e?: Event) => {
+		e?.preventDefault();
+		if (disabled || exceedLimit) return;
 		// Complete any running animation before starting new generation
 		completeCurrentAnimation();
 
-		setTimeout(() => {
+		if (submitTimeout !== undefined) window.clearTimeout(submitTimeout);
+		submitTimeout = window.setTimeout(() => {
+			submitTimeout = undefined;
 			onFocusInput();
-			textPages.find((page) => page.id === 'how-transformers-work')?.complete();
+			textPages.find((page) => page.id === 'how-transformers-work')?.complete?.();
 
 			inputText.set(inputTextTemp);
 
@@ -84,7 +100,7 @@
 		}, 0);
 	};
 
-	const handleKeyDown = (e) => {
+	const handleKeyDown = (e: KeyboardEvent) => {
 		if (e.key === 'Enter') {
 			e.preventDefault();
 			if (disabled || exceedLimit) return;
@@ -96,9 +112,9 @@
 
 	// Example select box
 	let dropdownOpen = false;
-	const onSelectExample = (d, i) => {
+	const onSelectExample = (d: string, i: number) => {
 		if ($isFetchingModel) {
-			textPages.find((page) => page.id === 'how-transformers-work')?.complete();
+			textPages.find((page) => page.id === 'how-transformers-work')?.complete?.();
 		}
 
 		dropdownOpen = false;
@@ -117,28 +133,32 @@
 		useCustomInput = false;
 	};
 
-	const moveCursorToEnd = (element) => {
+	const moveCursorToEnd = (element: HTMLElement) => {
 		const range = document.createRange();
 		const sel = window.getSelection();
 		range.selectNodeContents(element);
 		range.collapse(false);
-		sel.removeAllRanges();
-		sel.addRange(range);
+		sel?.removeAllRanges();
+		sel?.addRange(range);
 		element.focus();
 	};
 
 	$: isLoading = $isFetchingModel || $isModelRunning;
 	$: disabled =
 		$isFetchingModel ||
-		// $isModelRunning ||
+		$modelLoading.stage !== 'ready' ||
+		!$modelSession ||
+		$isMobile ||
+		$isModelRunning ||
 		$expandedBlock.id !== null ||
 		!!$weightPopover;
-	$: selectDisabled = $isModelRunning || $expandedBlock.id !== null || !!$weightPopover;
+	$: selectDisabled =
+		!$isTokenizerReady || $isModelRunning || $expandedBlock.id !== null || !!$weightPopover;
 	$: parameterDisabled = !!$weightPopover;
 </script>
 
 <div class="input-area" data-click="input-area">
-	<form class="input-form" data-click="input-form">
+	<form class="input-form" data-click="input-form" on:submit={handleSubmit}>
 		<ButtonGroup class="input-btn-group" size="sm">
 			<button
 				data-click="dropdown-btn"
@@ -147,13 +167,15 @@
 				class:selectDisabled
 				class="select-button inline-flex shrink-0 items-center justify-center border border-s-0 border-gray-200 bg-white px-3 py-2 text-center text-xs font-medium text-gray-900 first:rounded-s-lg first:border-s last:rounded-e-lg"
 			>
-				Examples<ChevronDownOutline class="pointer-events-none h-4 w-4 text-gray-500" />
+				{$t('input.examples')}<ChevronDownOutline
+					class="pointer-events-none h-4 w-4 text-gray-500"
+				/>
 			</button>
 			<Dropdown bind:open={dropdownOpen} class="example-dropdown">
 				{#each inputTextExample as text, index}
 					<DropdownItem
 						data-click={`dropdown-item-${index}`}
-						class={$selectedExampleIdx === index && 'active'}
+						class={$selectedExampleIdx === index ? 'active' : ''}
 						on:click={() => {
 							onSelectExample(text, index);
 						}}>{text}</DropdownItem
@@ -180,14 +202,18 @@
 						bind:this={inputRef}
 						contenteditable={!disabled}
 						class="text-box"
-						placeholder="Test your own input text"
+						placeholder={$t('input.placeholder')}
 						on:focus={onFocusInput}
 						on:input={onInput}
 						on:keydown={handleKeyDown}
 						on:click={(e) => {
 							e.stopPropagation();
 						}}
-						role="input"
+						role="textbox"
+						aria-label={$t('input.placeholder')}
+						aria-multiline="false"
+						aria-disabled={disabled}
+						tabindex={disabled ? -1 : 0}
 					>
 						{inputTextTemp}
 					</div>
@@ -198,7 +224,7 @@
 							role="none"
 							on:click={(e) => {
 								e.stopPropagation();
-								onFocusInput(e);
+								onFocusInput();
 								inputRef.focus();
 								moveCursorToEnd(inputRef);
 							}}
@@ -211,29 +237,37 @@
 					<div class="loading"><LoadingDots /></div>
 				{/if}
 				{#if $isMobile}
-					<span class="helper-text"
-						>Try the examples. Please use a desktop computer to input GPT-2 prompts directly.</span
+					<span class="helper-text">{$t('input.helper.mobile')}</span>
+				{:else if $isLoaded && $modelLoading.stage === 'tokenizer-loading'}
+					<span class="helper-text" role="status">{$t('input.helper.tokenizer')}</span>
+				{:else if $isLoaded && $modelLoading.stage === 'model-loading'}
+					<span class="helper-text" role="status"
+						>{$t('input.helper.reading', {
+							completed: $modelLoading.completed,
+							total: $modelLoading.total
+						})}</span
 					>
-				{:else if $isLoaded && $isFetchingModel}
-					<span class="helper-text"
-						>Try the examples while GPT-2 model is being downloaded (600MB)</span
-					>
+				{:else if $isLoaded && $modelLoading.stage === 'initializing'}
+					<span class="helper-text" role="status">{$t('input.helper.initializing')}</span>
+				{:else if $modelLoading.stage === 'error'}
+					<span class="helper-text">{$t('input.helper.failed')}</span>
+				{:else if $inferenceError}
+					<span class="helper-text">{$t('input.helper.inferenceError')}</span>
 				{:else if exceedLimit}
-					<span class="helper-text">You can enter up to {wordLimit} words.</span>
+					<span class="helper-text">{$t('input.helper.wordLimit', { n: wordLimit })}</span>
 				{/if}
 			</div>
 		</ButtonGroup>
 		<button
 			data-click="generate-btn"
-			disabled={disabled || exceedLimit || exceedLimit}
+			disabled={disabled || exceedLimit}
 			class={classNames('generate-button rounded-lg text-center text-sm shadow-sm', {
 				disabled: disabled || exceedLimit,
 				active: !(disabled || exceedLimit)
 			})}
 			type="submit"
-			on:click={handleSubmit}
 		>
-			Generate
+			{$t('input.generate')}
 		</button>
 	</form>
 	<div class="parameters" data-click="input-parameters">
@@ -298,7 +332,7 @@
 
 			.text-box {
 				white-space: nowrap;
-				br {
+				:global(br) {
 					display: none;
 				}
 

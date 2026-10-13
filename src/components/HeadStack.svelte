@@ -7,21 +7,28 @@
 		isOnAnimation,
 		userId
 	} from '~/store';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { gsap, Power1 } from '~/utils/gsap';
-	import { AngleLeftOutline, AngleRightOutline } from 'flowbite-svelte-icons';
+	import AngleLeftOutline from 'flowbite-svelte-icons/AngleLeftOutline.svelte';
+	import AngleRightOutline from 'flowbite-svelte-icons/AngleRightOutline.svelte';
 	import TextbookTooltip from './common/TextbookTooltip.svelte';
+	import { t } from '~/i18n';
 	import { textPages } from '~/utils/textbookPages';
 
+	let isDestroyed = false;
+	let pendingAttentionTimeout: ReturnType<typeof setTimeout> | undefined;
 	const asyncUpdateAttentionIdx = () => {
-		setTimeout(() => {
-			$attentionHeadIdx = $attentionHeadIdxTemp;
+		if (isDestroyed) return;
+		if (pendingAttentionTimeout !== undefined) clearTimeout(pendingAttentionTimeout);
+		pendingAttentionTimeout = setTimeout(() => {
+			pendingAttentionTimeout = undefined;
+			if (!isDestroyed) $attentionHeadIdx = $attentionHeadIdxTemp;
 		}, 850);
 	};
 
-	let headContent: HTMLDivElement;
+	let headContent: HTMLDivElement | undefined;
 	let headBlockSize = { width: 0, height: 0 };
-	let opacityOffset = 0.1;
+	const opacityOffset = 0.1;
 
 	$: headStyles = Array.from({ length: $modelMeta.attention_head_num }, (_, index) => ({
 		width: `${headBlockSize.width}px`,
@@ -35,7 +42,11 @@
 	}));
 
 	onMount(() => {
+		const observedElement = headContent;
+		if (!observedElement?.isConnected) return;
+
 		const resizeObserver = new ResizeObserver((entries) => {
+			if (isDestroyed || !observedElement.isConnected) return;
 			for (let entry of entries) {
 				const { width, height } = entry.contentRect;
 				headBlockSize = {
@@ -44,16 +55,14 @@
 				};
 			}
 		});
-		resizeObserver.observe(headContent);
+		resizeObserver.observe(observedElement);
 
-		return () => {
-			resizeObserver.unobserve(headContent);
-		};
+		return () => resizeObserver.disconnect();
 	});
 
 	let currentHeadIdx = $attentionHeadIdxTemp;
 
-	attentionHeadIdxTemp.subscribe((newIdx) => {
+	const unsubscribeAttentionHeadIdxTemp = attentionHeadIdxTemp.subscribe((newIdx) => {
 		if (newIdx === currentHeadIdx) return;
 
 		// 12->1
@@ -82,17 +91,26 @@
 		}
 	});
 
-	let container;
-	let heads = [];
+	let container: HTMLDivElement | undefined;
+	let heads: Element[] = [];
 	let disablePagination = false;
 
 	onMount(() => {
-		heads = Array.from(container.children);
+		if (container?.isConnected) heads = Array.from(container.children);
 	});
 
-	let tl;
+	let tl: ReturnType<typeof gsap.timeline> | undefined;
+
+	onDestroy(() => {
+		isDestroyed = true;
+		unsubscribeAttentionHeadIdxTemp();
+		if (pendingAttentionTimeout !== undefined) clearTimeout(pendingAttentionTimeout);
+		pendingAttentionTimeout = undefined;
+		tl?.kill();
+	});
 
 	const animateForwardTransition = () => {
+		if (isDestroyed) return;
 		if (tl) {
 			tl.progress(1).kill();
 		}
@@ -101,7 +119,12 @@
 
 		const shiftTime = 0.4;
 
+		const transitionContainer = container;
 		const [firstHead, ...restHeads] = heads;
+		if (!transitionContainer?.isConnected || !firstHead?.isConnected) {
+			asyncUpdateAttentionIdx();
+			return;
+		}
 
 		tl = gsap.timeline({
 			ease: Power1.easeOut,
@@ -109,8 +132,11 @@
 				asyncUpdateAttentionIdx();
 			},
 			onComplete: () => {
-				container.appendChild(firstHead);
-				heads.push(heads.shift());
+				if (isDestroyed || !transitionContainer.isConnected || container !== transitionContainer)
+					return;
+				transitionContainer.appendChild(firstHead);
+				const shiftedHead = heads.shift();
+				if (shiftedHead) heads.push(shiftedHead);
 				disablePagination = false;
 			}
 		});
@@ -182,6 +208,7 @@
 	};
 
 	const animateBackwardTransition = () => {
+		if (isDestroyed) return;
 		if (tl) {
 			tl.progress(1).kill();
 		}
@@ -190,8 +217,13 @@
 
 		const shiftTime = 0.4;
 
+		const transitionContainer = container;
 		const lastHead = heads[heads.length - 1];
 		const restHeads = heads.slice(0, -1);
+		if (!transitionContainer?.isConnected || !lastHead?.isConnected) {
+			asyncUpdateAttentionIdx();
+			return;
+		}
 
 		tl = gsap.timeline({
 			ease: Power1.easeOut,
@@ -199,8 +231,11 @@
 				asyncUpdateAttentionIdx();
 			},
 			onComplete: () => {
-				container.prepend(lastHead);
-				heads.unshift(heads.pop());
+				if (isDestroyed || !transitionContainer.isConnected || container !== transitionContainer)
+					return;
+				transitionContainer.prepend(lastHead);
+				const poppedHead = heads.pop();
+				if (poppedHead) heads.unshift(poppedHead);
 				disablePagination = false;
 			}
 		});
@@ -273,7 +308,7 @@
 	};
 
 	const onClickNext = () => {
-		textPages.find((page) => page.id === 'multi-head')?.complete();
+		textPages.find((page) => page.id === 'multi-head')?.complete?.();
 
 		$attentionHeadIdxTemp =
 			$attentionHeadIdxTemp < $modelMeta.attention_head_num - 1 ? $attentionHeadIdxTemp + 1 : 0;
@@ -286,7 +321,7 @@
 	};
 
 	const onClickPrev = () => {
-		textPages.find((page) => page.id === 'multi-head')?.complete();
+		textPages.find((page) => page.id === 'multi-head')?.complete?.();
 
 		$attentionHeadIdxTemp =
 			$attentionHeadIdxTemp > 0 ? $attentionHeadIdxTemp - 1 : $modelMeta.attention_head_num - 1;
@@ -303,15 +338,22 @@
 	<div class="head-title absolute bottom-2 right-3 text-right text-gray-400">
 		<TextbookTooltip id="multi-head">
 			<span class="title-text"
-				>Head {$attentionHeadIdxTemp + 1} of {$modelMeta.attention_head_num}</span
+				>{$t('viz.headOf', {
+					current: $attentionHeadIdxTemp + 1,
+					total: $modelMeta.attention_head_num
+				})}</span
 			></TextbookTooltip
 		>
 		<button
+			type="button"
+			aria-label={$t('viz.previousHead')}
 			on:click={onClickPrev}
 			disabled={$isOnAnimation || disablePagination}
 			data-click="attention-head-prev-btn"><AngleLeftOutline size="sm"></AngleLeftOutline></button
 		>
 		<button
+			type="button"
+			aria-label={$t('viz.nextHead')}
 			on:click={onClickNext}
 			disabled={$isOnAnimation || disablePagination}
 			data-click="attention-head-next-btn"><AngleRightOutline size="sm"></AngleRightOutline></button
@@ -366,10 +408,6 @@
 	}
 	.head-content {
 		width: 100%;
-
-		.contents {
-			width: 100%;
-		}
 	}
 
 	.head-card-container {

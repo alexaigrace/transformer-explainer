@@ -1,19 +1,20 @@
-export const reshapeArray = (arr, dimensions) => {
-	// to ignore batch dimension, but ensure to keep the (1,1) attention dimension
-	const filteredDimensions = dimensions.filter((dim, i) => !(i === 0 && dim == 1));
+export const reshapeArray = (arr: number[], dimensions: readonly number[]): number[][] => {
+	// Ignore only the batch dimension, retaining both attention matrix dimensions.
+	const matrixDimensions =
+		dimensions.length === 3 && dimensions[0] === 1 ? dimensions.slice(1) : dimensions;
+	const [rowCount, columnCount] = matrixDimensions;
 
-	const createNestedArray = (arr, dims) => {
-		if (dims.length === 1) return arr.splice(0, dims[0]);
-		const size = dims[0];
-		const restDims = dims.slice(1);
-		return Array.from({ length: size }, () => createNestedArray(arr, restDims));
-	};
+	if (matrixDimensions.length !== 2 || rowCount === undefined || columnCount === undefined) {
+		throw new Error('Expected an attention tensor with two matrix dimensions.');
+	}
 
-	return createNestedArray(arr, filteredDimensions);
+	return Array.from({ length: rowCount }, () => arr.splice(0, columnCount));
 };
 
-export const findArrayDepth = (arr: any) =>
-	Array.isArray(arr) ? 1 + arr.reduce((max, item) => Math.max(max, findArrayDepth(item)), 0) : 0;
+export const findArrayDepth = (arr: unknown): number =>
+	Array.isArray(arr)
+		? 1 + arr.reduce((max: number, item: unknown) => Math.max(max, findArrayDepth(item)), 0)
+		: 0;
 
 export const splitArray = (doubleArray: number[][], x: number) => {
 	const splitArrays = doubleArray.map((subArray) => {
@@ -26,9 +27,9 @@ export const splitArray = (doubleArray: number[][], x: number) => {
 	);
 };
 
-export const maskArray = (data) => {
+export const maskArray = (data: AttentionMatrixData): AttentionMatrixData => {
 	return data.map((array, index) => {
-		let newArray = new Array(array.length).fill(-Infinity);
+		const newArray = new Array<number | null>(array.length).fill(-Infinity);
 		for (let i = 0; i <= index && i < array.length; i++) {
 			newArray[i] = array[i];
 		}

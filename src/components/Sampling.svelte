@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { Radio } from 'flowbite-svelte';
+	import Radio from 'flowbite-svelte/Radio.svelte';
 	import { sampling, userId } from '~/store';
 	import HelpPopover from './common/HelpPopover.svelte';
 	import Slider from './common/Slider.svelte';
 	import TextbookTooltip from './common/TextbookTooltip.svelte';
 	import { textPages } from '~/utils/textbookPages';
+	import { t } from '~/i18n';
 
 	export let disabled: boolean = false;
 
@@ -23,13 +24,13 @@
 		bind:value={$sampling.value}
 		valueText={`${$sampling.type === 'top-k' ? 'k' : 'p'}=${$sampling.value}`}
 		onClick={() => {
-			textPages.find((page) => page.id === 'sampling')?.complete();
+			textPages.find((page) => page.id === 'sampling')?.complete?.();
 		}}
 	>
 		<div class="sampling-type">
 			<div class="title flex items-center gap-[2px]">
 				<TextbookTooltip id="sampling">
-					<div>Sampling</div></TextbookTooltip
+					<div>{$t('param.sampling')}</div></TextbookTooltip
 				>
 				<!-- <HelpPopover
 					id="sampling-help"
@@ -50,7 +51,9 @@
 						e.stopPropagation();
 					}}
 					on:change={(e) => {
-						e.target.checked && sampling.set({ type: 'top-k', value: 5 });
+						if (e.target instanceof HTMLInputElement && e.target.checked) {
+							sampling.set({ type: 'top-k', value: 5 });
+						}
 						window.dataLayer?.push({
 							event: 'sampling-selected',
 							sampling_type: 'top-k',
@@ -71,7 +74,9 @@
 						e.stopPropagation();
 					}}
 					on:change={(e) => {
-						e.target.checked && sampling.set({ type: 'top-p', value: 0.5 });
+						if (e.target instanceof HTMLInputElement && e.target.checked) {
+							sampling.set({ type: 'top-p', value: 0.5 });
+						}
 						window.dataLayer?.push({
 							event: 'sampling-selected',
 							sampling_type: 'top-p',

@@ -21,10 +21,26 @@ export const textbookPreviousPage = writable<number>(-1);
 export const textbookCurrentPageId = writable<string>(textPages[0].id);
 export const textbookPreviousPageId = writable<string>('');
 export const isTextbookOpen = writable<boolean>(true);
+export const textbookOpener = writable<HTMLElement | null>(null);
 
 // is transformer running?
 export const isModelRunning = writable(false);
 export const isFetchingModel = writable(true);
+export const isTokenizerReady = writable(false);
+export type ModelLoadingStage =
+	| 'tokenizer-loading'
+	| 'model-loading'
+	| 'initializing'
+	| 'ready'
+	| 'error'
+	| 'examples';
+export const modelLoading = writable<{
+	stage: ModelLoadingStage;
+	completed: number;
+	total: number;
+	cacheHits: number;
+}>({ stage: 'tokenizer-loading', completed: 0, total: 63, cacheHits: 0 });
+export const inferenceError = writable('');
 export const isLoaded = writable(false);
 
 export const inputTextExample = [
@@ -38,7 +54,7 @@ export const inputTextExample = [
 const initialExIdx = 0;
 export const selectedExampleIdx = writable<number>(initialExIdx);
 
-export const modelSession = writable<ort.InferenceSession>();
+export const modelSession = writable<ort.InferenceSession | undefined>(undefined);
 
 // transformer model output
 export const modelData = writable<ModelData>(ex0);
@@ -79,8 +95,8 @@ export const selectedModel = writable(initialSelectedModel);
 export const modelMeta = derived(selectedModel, ($selectedModel) => modelMetaMap[$selectedModel]);
 
 // Temperature setting
-export const initialtTemperature = 0.8;
-export const temperature = writable(initialtTemperature);
+export const initialTemperature = 0.8;
+export const temperature = writable(initialTemperature);
 
 // Sampling
 export const sampling = writable<Sampling>({ type: 'top-k', value: 5 });
@@ -105,16 +121,23 @@ export const predictedColor = theme.colors.purple[600];
 
 // Interactivity
 export const hoveredPath = writable();
-export const hoveredMatrixCell = writable({ row: null, col: null });
-export const weightPopover = writable();
+export const hoveredMatrixCell = writable<{ row: number | null; col: number | null }>({
+	row: null,
+	col: null
+});
+export const weightPopover = writable<'qkv' | 'attention' | 'mlpUp' | 'mlpDown' | 'softmax' | null>(
+	null
+);
 export const tooltip = writable();
 
-export const isMobile = readable(detectDevice());
+export const isMobile = readable(false, (set) => {
+	if (typeof window !== 'undefined') {
+		// Only run in browser environment
+		const userAgent = navigator.userAgent.toLowerCase();
+		set(/android|iphone|ipad|ipod/i.test(userAgent));
+	}
+	return () => {}; // Cleanup function
+});
 
 // User identification
 export const userId = writable<string | null>(null);
-
-function detectDevice() {
-	const userAgent = navigator.userAgent.toLowerCase();
-	return /android|iphone|ipad|ipod/i.test(userAgent);
-}

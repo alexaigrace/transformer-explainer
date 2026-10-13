@@ -1,7 +1,8 @@
-import { AutoTokenizer } from '@xenova/transformers';
+import { base } from '$app/paths';
+import { loadLocalTokenizer } from './localTokenizer';
 
 export const getTokenization = async(input: string) => {
-    const tokenizer = await AutoTokenizer.from_pretrained('gpt2'); // load pre-trained toakenizer
+    const tokenizer = await loadLocalTokenizer(`${base}/tokenizer/`);
 
     const token_ids = tokenizer.encode(input);
     const input_tokens = tokenizer.decode(token_ids);

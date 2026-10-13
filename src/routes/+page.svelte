@@ -14,14 +14,18 @@
 		modelData,
 		modelSession,
 		isFetchingModel,
+		isTokenizerReady,
 		selectedExampleIdx,
 		isMobile,
 		isOnBlockTransition,
 		blockIdx,
 		isTextbookOpen,
-		userId
+		userId,
+		modelLoading,
+		inferenceError,
+		isModelRunning
 	} from '~/store';
-	import { PreTrainedTokenizer } from '@xenova/transformers';
+	import type { PreTrainedTokenizer } from '@xenova/transformers';
 	import Sankey from '~/components/Sankey.svelte';
 	import Attention from '~/components/Attention.svelte';
 	import SubsequentBlocks from '~/components/SubsequentBlocks.svelte';
@@ -35,94 +39,197 @@
 	import * as ort from 'onnxruntime-web';
 
 	import { adjustTemperature, runModel, fakeRunWithCachedData } from '~/utils/data';
-	import { fetchAndMergeChunks } from '~/utils/fetchChunks';
+	import { localModelLoader, modelSessionPublisher } from '~/utils/modelRuntime';
+	import { createRunScope } from '~/utils/runScope.js';
 	import WeightPopovers from '~/components/WeightPopovers.svelte';
 	import { fade } from 'svelte/transition';
-	import { AutoTokenizer } from '@xenova/transformers';
+	import { loadLocalTokenizer } from '~/utils/localTokenizer';
 	import { ex0, ex1, ex2, ex3, ex4 } from '~/constants/examples';
 	import BlockTransition from '~/components/BlockTransition.svelte';
 	import QKV from '~/components/QKV.svelte';
 	import Textbook from '~/components/textbook/Textbook.svelte';
+	import { t } from '~/i18n';
 
-	ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.0/dist/';
+	ort.env.wasm.wasmPaths = `${base}/onnxruntime/`;
 	ort.env.logLevel = 'error';
 
 	let active = false;
-	let appStartTime = Date.now();
+	let startupError = '';
+	let retryLoading = () => {};
 
-	// fetch model
-	onMount(async () => {
-		const gpt2Tokenizer = await AutoTokenizer.from_pretrained('Xenova/gpt2');
-		active = true;
-
-		const unsubscribe = subscribeInputs(gpt2Tokenizer);
-
-		if (!$isMobile) {
-			await fetchModel();
-		}
-
-		return unsubscribe;
+	onMount(() => {
+		let disposed = false;
+		let unsubscribe: (() => void) | undefined;
+		let releaseModel: (() => Promise<void>) | undefined;
+		const sessionOwner = Symbol('page');
+		const runScope = createRunScope();
+		let attempt = 0;
+		const debug = new URLSearchParams(window.location.search).get('startupDebug') === '1';
+		const initialize = async () => {
+			if (disposed) return;
+			const currentAttempt = ++attempt;
+			const startedAt = performance.now();
+			let tokenizerAt = startedAt;
+			let initializingAt = startedAt;
+			releaseModel?.();
+			releaseModel = undefined;
+			modelSessionPublisher.reserve(sessionOwner, () => {
+				disposed = true;
+				attempt++;
+				unsubscribe?.();
+				void runScope.close(async () => {
+					await releaseModel?.();
+				});
+			});
+			if (currentAttempt === 1) {
+				isModelRunning.set(false);
+				isTokenizerReady.set(false);
+			}
+			startupError = '';
+			inferenceError.set('');
+			isFetchingModel.set(true);
+			modelLoading.set({ stage: 'tokenizer-loading', completed: 0, total: 63, cacheHits: 0 });
+			try {
+				const tokenizer = await loadLocalTokenizer(`${base}/tokenizer/`);
+				if (disposed || currentAttempt !== attempt) return;
+				tokenizerAt = performance.now();
+				isTokenizerReady.set(true);
+				active = true;
+				if (!unsubscribe) unsubscribe = subscribeInputs(tokenizer, runScope);
+				if ($isMobile) {
+					isFetchingModel.set(false);
+					modelLoading.set({ stage: 'examples', completed: 0, total: 63, cacheHits: 0 });
+					return;
+				}
+				const chunkUrls = Array.from(
+					{ length: 63 },
+					(_, i) => `${base}/model-v2/gpt2.onnx.part${i}`
+				);
+				const handle = localModelLoader.acquire({
+					path: `${base}/model-v2/`,
+					version: 'gpt2-v2',
+					chunkUrls,
+					onProgress: (progress) => {
+						if (disposed || currentAttempt !== attempt) return;
+						if (progress.stage === 'initializing') initializingAt = performance.now();
+						modelLoading.set({
+							stage: progress.stage === 'loading' ? 'model-loading' : 'initializing',
+							completed: progress.completed,
+							total: progress.total,
+							cacheHits: progress.cacheHits
+						});
+					}
+				});
+				releaseModel = handle.release;
+				const session = await handle.promise;
+				if (disposed || currentAttempt !== attempt) return;
+				if (!modelSessionPublisher.publish(sessionOwner, session)) {
+					await handle.release();
+					return;
+				}
+				isFetchingModel.set(false);
+				modelLoading.update((state) => ({ ...state, stage: 'ready' }));
+				try {
+					if (debug) {
+						console.info(
+							'STARTUP_BENCH summary',
+							JSON.stringify({
+								mountMs: startedAt,
+								tokenizerMs: tokenizerAt - startedAt,
+								readMs: initializingAt - tokenizerAt,
+								initializeMs: performance.now() - initializingAt,
+								readyMs: performance.now(),
+								cacheHits: $modelLoading.cacheHits,
+								outputCount: session.outputNames.length
+							})
+						);
+					}
+					window.dataLayer?.push({
+						event: 'model-loaded',
+						use_cache: $modelLoading.cacheHits === 63,
+						load_time_ms: performance.now() - startedAt,
+						user_id: $userId
+					});
+				} catch {
+					// Optional diagnostics must not change a successful model load.
+				}
+			} catch (error) {
+				if (disposed || currentAttempt !== attempt) return;
+				console.error('Unable to load local GPT-2 resources:', error);
+				modelSessionPublisher.clear(sessionOwner);
+				startupError = error instanceof Error ? error.message : String(error);
+				modelLoading.update((state) => ({ ...state, stage: 'error' }));
+				isFetchingModel.set(false);
+				releaseModel?.();
+				releaseModel = undefined;
+			}
+		};
+		retryLoading = () => {
+			void initialize();
+		};
+		void initialize();
+		return () => {
+			disposed = true;
+			attempt++;
+			unsubscribe?.();
+			if (modelSessionPublisher.clear(sessionOwner)) {
+				isModelRunning.set(false);
+				isTokenizerReady.set(false);
+				inferenceError.set('');
+			}
+			void runScope.close(async () => {
+				await releaseModel?.();
+			});
+		};
 	});
-
-	// Fetch model onnx
-	const fetchModel = async () => {
-		const chunkNum = 63; //TODO: move to model meta
-		const chunkUrls = Array(chunkNum)
-			.fill(0)
-			.map((d, i) => `${base}/model-v2/gpt2.onnx.part${i}`);
-
-		// Fetch from cache
-		const { hasCache, mergedArray } = await fetchAndMergeChunks(chunkUrls);
-
-		// Create a Blob from the merged array
-		const blob = new Blob([mergedArray], { type: 'application/octet-stream' });
-
-		// Create a URL for the Blob
-		const url = URL.createObjectURL(blob);
-
-		// Create ONNX session using the Blob URL
-		const session = await ort.InferenceSession.create(url, {
-			// logSeverityLevel: 0
-		});
-
-		modelSession.set(session);
-
-		isFetchingModel.set(false);
-
-		const loadTime = Date.now() - appStartTime;
-		window.dataLayer?.push({
-			event: `model-loaded`,
-			use_cache: hasCache,
-			load_time_ms: loadTime,
-			user_id: $userId
-		});
-	};
 
 	// Subscribe inputs
 	const cachedDataMap = [ex0, ex1, ex2, ex3, ex4];
-	const subscribeInputs = (tokenizer: PreTrainedTokenizer) => {
+	const subscribeInputs = (
+		tokenizer: PreTrainedTokenizer,
+		scope: ReturnType<typeof createRunScope>
+	) => {
+		const reportRunError = (error: unknown) => {
+			if (scope.signal.aborted) return;
+			console.error('Local GPT-2 inference failed:', error);
+			inferenceError.set(error instanceof Error ? error.message : String(error));
+			isModelRunning.set(false);
+		};
 		const runModelOrCache = () => {
+			if (scope.signal.aborted) return;
 			if ($isFetchingModel || !$modelSession) {
 				const cachedData = cachedDataMap[$selectedExampleIdx];
 
-				fakeRunWithCachedData({
-					cachedData,
-					tokenizer,
-					temperature: $temperature,
-					sampling: $sampling
-				});
+				void scope
+					.track(
+						fakeRunWithCachedData({
+							cachedData,
+							tokenizer,
+							temperature: $temperature,
+							sampling: $sampling,
+							signal: scope.signal
+						})
+					)
+					.catch(reportRunError);
 				return;
 			}
-			// run model when input has changed
-			runModel({
-				tokenizer,
-				input: $inputText.trim(),
-				temperature: $temperature,
-				sampling: $sampling
-			});
+			// Run only after a real session is available.
+			inferenceError.set('');
+			void scope
+				.track(
+					runModel({
+						tokenizer,
+						input: $inputText.trim(),
+						temperature: $temperature,
+						sampling: $sampling,
+						session: $modelSession,
+						signal: scope.signal
+					})
+				)
+				.catch(reportRunError);
 		};
 
-		const unsubscribeInputText = inputText.subscribe((value) => {
+		const unsubscribeInputText = inputText.subscribe(() => {
 			runModelOrCache();
 		});
 
@@ -132,7 +239,7 @@
 				initialTemperature = false;
 				return;
 			}
-			adjustTemperature({
+			void adjustTemperature({
 				tokenizer,
 				logits: $modelData.logits,
 				temperature: value,
@@ -146,7 +253,7 @@
 				initialSampling = false;
 				return;
 			}
-			adjustTemperature({
+			void adjustTemperature({
 				tokenizer,
 				logits: $modelData.logits,
 				temperature: $temperature,
@@ -179,6 +286,25 @@
 		calculateVectorHeight();
 	}
 </script>
+
+{#if startupError}
+	<div role="alert" class="absolute left-4 top-4 z-50 max-w-xl rounded bg-red-100 p-4 text-red-900">
+		<strong>{$t('error.title')}</strong>
+		<p>{startupError}</p>
+		<p>{$t('error.hint')}</p>
+		<button
+			type="button"
+			on:click={retryLoading}
+			class="mt-2 rounded bg-white px-3 py-1 font-medium">{$t('error.retry')}</button
+		>
+	</div>
+{/if}
+{#if $inferenceError}
+	<div role="alert" class="absolute left-4 top-4 z-50 max-w-xl rounded bg-red-100 p-4 text-red-900">
+		<strong>{$t('error.inferenceTitle')}</strong>
+		<p>{$t('error.inferenceHint')}</p>
+	</div>
+{/if}
 
 <div
 	class:active
@@ -297,7 +423,7 @@
 			.hide {
 				display: none;
 			}
-			&.animate-forward {
+			&:global(.animate-forward) {
 				.block-steps,
 				.transition-watch {
 					animation-duration: 800ms;
@@ -317,7 +443,7 @@
 				}
 			}
 
-			&.animate-backward {
+			&:global(.animate-backward) {
 				.block-steps,
 				.transition-watch {
 					animation-duration: 800ms;

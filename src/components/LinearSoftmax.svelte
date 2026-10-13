@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Tooltip } from 'flowbite-svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
 	import { setContext, getContext, onMount } from 'svelte';
 	import classNames from 'classnames';
 	import { gsap, Flip } from '~/utils/gsap';
@@ -19,18 +19,20 @@
 	import ProbabilityBars from './ProbabilityBars.svelte';
 	import Katex from '~/utils/Katex.svelte';
 	import { ga } from '~/utils/event';
-	import { EyeOutline, ZoomInOutline } from 'flowbite-svelte-icons';
+	import EyeOutline from 'flowbite-svelte-icons/EyeOutline.svelte';
+	import ZoomInOutline from 'flowbite-svelte-icons/ZoomInOutline.svelte';
 	import { fade } from 'svelte/transition';
-	import SoftmaxPopover from './popovers/SoftmaxPopover.svelte';
-	import LogitWeightPopover from './popovers/LogitWeightPopover.svelte';
+	import SoftmaxPopover from './Popovers/SoftmaxPopover.svelte';
+	import LogitWeightPopover from './Popovers/LogitWeightPopover.svelte';
 	import { textPages } from '~/utils/textbookPages';
 	import TextbookTooltip from '~/components/common/TextbookTooltip.svelte';
+	import { t } from '~/i18n';
 
 	export let className: string | undefined = undefined;
 
 	setContext('block-id', 'softmax');
 
-	const blockId = getContext('block-id');
+	const blockId = getContext<string>('block-id');
 
 	let isSoftmaxExpanded = false;
 	let showLogitPopover = false;
@@ -51,10 +53,10 @@
 		}
 	};
 
-	const onClickSoftmaxTitle = (e) => {
+	const onClickSoftmaxTitle = (e: MouseEvent | KeyboardEvent) => {
 		e.stopPropagation();
 		e.preventDefault();
-		textPages.find((page) => page.id === 'output-probabilities')?.out();
+		textPages.find((page) => page.id === 'output-probabilities')?.out?.();
 
 		if (!isSoftmaxExpanded) {
 			expandedBlock.set({ id: blockId });
@@ -66,25 +68,29 @@
 	};
 	let expandableEl: HTMLDivElement;
 
-	function handleOutsideClick(e) {
-		if (isSoftmaxExpanded && !expandableEl.contains(e.target)) {
+	function handleOutsideClick(e: MouseEvent) {
+		if (
+			isSoftmaxExpanded &&
+			expandableEl &&
+			e.target instanceof Node &&
+			!expandableEl.contains(e.target)
+		) {
 			expandedBlock.set({ id: null });
 		}
 	}
 	onMount(() => {
-		document.querySelector('.main-section').addEventListener('click', handleOutsideClick);
-		return () => {
-			document.querySelector('.main-section').removeEventListener('click', handleOutsideClick);
-		};
+		const mainSection = document.querySelector<HTMLElement>('.main-section');
+		mainSection?.addEventListener('click', handleOutsideClick);
+		return () => mainSection?.removeEventListener('click', handleOutsideClick);
 	});
 
 	// animation
-	let containerState: any;
+	let containerState: ReturnType<typeof Flip.getState>;
 
 	let drawBars: () => void;
 
 	// google analytics
-	let startTime = null;
+	let startTime: number | undefined;
 
 	const expandSoftmax = async () => {
 		containerState = Flip.getState('.softmax .softmax-detail.expandable');
@@ -121,7 +127,7 @@
 
 	const collapseSoftmax = async () => {
 		let endTime = performance.now();
-		let visibleDuration = endTime - startTime;
+		let visibleDuration = endTime - (startTime ?? endTime);
 
 		window.dataLayer?.push({
 			event: 'visibility-hide',
@@ -171,7 +177,7 @@
 	// top-p
 	$: topPProbabilities = data?.map((d) => d.topPProbability) || [];
 	$: cumulativeProbabilities = data?.map((d) => d.cumulativeProbability) || [];
-	$: cutoffIndex = data?.[0].cutoffIndex;
+	$: cutoffIndex = data?.[0]?.cutoffIndex;
 
 	let isHovered = false;
 
@@ -183,7 +189,7 @@
 		isHovered = false;
 	}
 
-	const onClickLogits = (e) => {
+	const onClickLogits = (e: MouseEvent) => {
 		e.stopPropagation();
 		e.preventDefault();
 		showLogitPopover = !showLogitPopover;
@@ -211,7 +217,7 @@
 		data-click="prob-step-title"
 	>
 		<div class="title-text flex w-max items-center gap-1">
-			Probabilities
+			{$t('viz.probabilities')}
 			<ZoomInOutline></ZoomInOutline>
 		</div>
 	</div>
@@ -235,7 +241,7 @@
 					>
 						<span>{item.token.trim() === '' ? '\u00A0' : item.token}</span>
 						<Tooltip class="softmax-tooltip" type="light">
-							Token ID: <span class="number">{tokenIds[idx]}</span>
+							<span class="number">{$t('viz.tokenId', { id: tokenIds[idx] })}</span>
 						</Tooltip>
 					</div>
 				{/each}
@@ -247,32 +253,34 @@
 			{#if isSoftmaxExpanded}
 				<div class="softmax-subtitle softmax-detail flex text-center text-xs opacity-0">
 					<div class="title-box token-string !justify-end">
-						<div class="title-text">Tokens</div>
+						<div class="title-text">{$t('viz.tokens')}</div>
 					</div>
 					<div class="title-box logits">
-						<div
+						<button
+							type="button"
 							class="title-text btn shadow-sm"
 							on:click={onClickLogits}
 							data-click="prob-expansion-logit-btn"
 						>
-							Logits <EyeOutline class="icon text-gray-400" size="sm" />
-						</div>
+							{$t('viz.logits')}
+							<EyeOutline class="icon text-gray-400" size="sm" />
+						</button>
 					</div>
 					<div class="title-box scaled">
 						<TextbookTooltip id="temperature"
-							><div class="title-text">Scaled logits</div></TextbookTooltip
+							><div class="title-text">{$t('viz.scaledLogits')}</div></TextbookTooltip
 						>
 					</div>
 					<div class="title-box sampling">
 						<TextbookTooltip id="sampling"
 							><div class="title-text">
-								{$sampling.type === 'top-k' ? 'Top-k' : 'Softmax & Top-p'}
+								{$sampling.type === 'top-k' ? 'Top-k' : $t('viz.softmaxAndTopP')}
 							</div></TextbookTooltip
 						>
 					</div>
 					<div class="title-box probability">
 						<div class="title-text mr-1">
-							{$sampling.type === 'top-k' ? 'Softmax' : 'Normalization'}
+							{$sampling.type === 'top-k' ? $t('viz.softmax') : $t('viz.normalization')}
 						</div>
 					</div>
 				</div>
@@ -357,18 +365,26 @@
 											class:sample_highlight={$highlightedIndex === idx}
 											class:final_token_highlight={$predictedToken?.rank === idx}
 											class:cutoff={cutoffIndex === idx}
-											class:filtered={cutoffIndex >= idx}
-											class:zero={cutoffIndex < idx}
+											class:filtered={cutoffIndex !== undefined && cutoffIndex >= idx}
+											class:zero={cutoffIndex !== undefined && cutoffIndex < idx}
 										>
-											<span class="number" class:strike={cutoffIndex < idx}>{prob.toFixed(2)}</span>
+											<span
+												class="number"
+												class:strike={cutoffIndex !== undefined && cutoffIndex < idx}
+												>{prob.toFixed(2)}</span
+											>
 											{#if cutoffIndex === idx}
 												<span class="cutoff-label"
-													>sum={cumulativeProbabilities[idx]?.toFixed(2)}</span
+													>{$t('viz.cumulativeSum', {
+														value: cumulativeProbabilities[idx]?.toFixed(2) ?? ''
+													})}</span
 												>
 											{/if}
 										</div>
 										<Tooltip class="softmax-tooltip" type="light">
-											sum=<Katex math={`${cumulativeProbabilities[idx]?.toFixed(2)}`}></Katex>
+											{$t('viz.cumulativeSum', {
+												value: cumulativeProbabilities[idx]?.toFixed(2) ?? ''
+											})}
 										</Tooltip>
 									{/if}
 								{/each}
@@ -413,13 +429,6 @@
 		z-index: $TOOLTIP_INDEX;
 	}
 	.softmax {
-		.top-k-line {
-			width: 100%;
-			height: 1px;
-			background: theme('colors.purple.500');
-			top: 1.5rem;
-			position: absolute;
-		}
 		&.expanded {
 			.title,
 			.content {
@@ -539,9 +548,6 @@
 			.strike {
 				text-decoration: line-through;
 			}
-			.current {
-				transform: translateY(0);
-			}
 
 			.softmax-subtitle {
 				gap: 0.5rem;
@@ -583,17 +589,6 @@
 
 		.second-column {
 			position: relative;
-
-			.dim {
-				user-select: none;
-				position: absolute;
-				bottom: 0;
-				width: 100%;
-				height: 50vh;
-				z-index: $EXPANDED_DIM_INDEX;
-				background-color: white;
-				background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 70%);
-			}
 		}
 	}
 </style>

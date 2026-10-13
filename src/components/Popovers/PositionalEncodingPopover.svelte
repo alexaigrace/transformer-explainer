@@ -1,19 +1,8 @@
 <script lang="ts">
-	import classNames from 'classnames';
-	import { Popover } from 'flowbite-svelte';
 	import * as d3 from 'd3';
-	import { onMount } from 'svelte';
 	import { writable } from 'svelte/store';
 	import { tokens } from '~/store';
-
-	import type { PopoverProps } from 'flowbite-svelte/Popover.svelte';
-
-	export let offset: PopoverProps['offset'] = undefined;
-	export let className: PopoverProps['class'] = undefined;
-	export let triggeredBy: PopoverProps['triggeredBy'] = undefined;
-	export let trigger: PopoverProps['trigger'] = 'hover';
-	export let placement: PopoverProps['placement'] = 'right';
-	export let open: PopoverProps['open'] = false;
+	import { t } from '~/i18n';
 
 	const numPositions = 40;
 	const fullEmbeddingDim = 768; // Compute 768 dimensions
@@ -21,9 +10,13 @@
 
 	let numBarcodeLines = 21;
 
-	function computePositionalEncodings(numPositions, fullEmbeddingDim, visualEmbeddingDim) {
+	function computePositionalEncodings(
+		numPositions: number,
+		fullEmbeddingDim: number,
+		visualEmbeddingDim: number
+	) {
 		const posEncodings = Array(visualEmbeddingDim)
-			.fill()
+			.fill(0)
 			.map(() => Array(numPositions).fill(0));
 
 		for (let pos = 0; pos < numPositions; pos++) {
@@ -39,41 +32,32 @@
 		return posEncodings;
 	}
 
-	let posEncodings = [];
-	const hoveredRow = writable(null);
-	const hoveredCol = writable(null);
+	let posEncodings: number[][] = [];
+	const hoveredRow = writable<number | null>(null);
+	const hoveredCol = writable<number | null>(null);
 
 	// Create a linear color scale
 	const colorScale = d3
-		.scaleLinear()
+		.scaleLinear<string>()
 		.domain([-1, 0, 1])
 		.range(['rgb(248, 113, 113)', 'rgb(255, 255, 255)', 'rgb(96, 165, 250)'])
 		.interpolate(d3.interpolateRgb);
 
 	// Function to get the gradient color using D3
-	function getGradientColor(value) {
+	function getGradientColor(value: number) {
 		return colorScale(value);
 	}
 
 	posEncodings = computePositionalEncodings(numPositions, fullEmbeddingDim, visualEmbeddingDim);
 </script>
 
-<!-- <Popover
-	class={classNames('popover positional-encoding-popover text-sm', className)}
-	title="Positional Encoding"
-	{offset}
-	{triggeredBy}
-	{trigger}
-	{placement}
-	{open}
-> -->
 <div class="popover-container emb_pos">
 	<!-- <div class="title">Positional Encoding</div> -->
 
 	<div class="content">
 		<div class="token-container">
 			<div class="tokens">
-				<div class="subtitle">Token</div>
+				<div class="subtitle">{$t('popover.positional.token')}</div>
 				<div class="subcontent flex flex-col">
 					{#each $tokens as token, token_idx}
 						<div
@@ -89,7 +73,7 @@
 				</div>
 			</div>
 			<div class="positions">
-				<div class="subtitle">Position</div>
+				<div class="subtitle">{$t('popover.positional.position')}</div>
 				<div class="subcontent flex flex-col">
 					{#each $tokens as token, token_idx}
 						<div
@@ -105,7 +89,7 @@
 				</div>
 			</div>
 			<div class="embs">
-				<div class="subtitle">Embedding</div>
+				<div class="subtitle">{$t('popover.positional.embedding')}</div>
 				<div class="subcontent flex flex-col">
 					{#each $tokens as token, token_idx}
 						<div
@@ -132,7 +116,7 @@
 			</div>
 		</div>
 		<div class="viz-container">
-			<div class="subtitle">Encoding Matrix</div>
+			<div class="subtitle">{$t('popover.positional.encodingMatrix')}</div>
 			<div class="subcontent viz-subcontent">
 				<div class="chart-container mx-auto">
 					<div class="embed-dim-axis">
@@ -186,7 +170,7 @@
 					<div class="even-pos flex h-10 flex-1 items-center justify-between gap-4 p-1">
 						<div class="flex items-center justify-center gap-1">
 							<span class="flex"></span>
-							{#if $hoveredCol % 2 === 0}
+							{#if ($hoveredCol ?? 0) % 2 === 0}
 								<span class="flex w-8 justify-center rounded-sm border border-blue-400">sin</span>
 							{:else}
 								<span class="flex w-8 justify-center rounded-sm border border-blue-400">cos</span>
@@ -233,15 +217,7 @@
 	</div>
 </div>
 
-<!-- </Popover> -->
-
 <style lang="scss">
-	.highlight {
-		cursor: pointer !important;
-		border: 2px solid theme('colors.gray.500') !important;
-		font-weight: bold;
-	}
-
 	.formula-solution-box {
 		width: 5rem;
 		height: 3rem;
@@ -255,15 +231,6 @@
 		max-width: 40rem;
 		display: flex;
 		flex-direction: column;
-
-		.title {
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			text-align: center;
-			font-size: 1rem;
-			color: theme('colors.gray.500');
-		}
 
 		.content {
 			display: flex;
@@ -395,9 +362,6 @@
 		justify-content: center;
 		width: 100%;
 		margin-top: 20px;
-	}
-
-	.matrix {
 	}
 
 	.matrix-cell {

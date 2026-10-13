@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { t } from '~/i18n';
 	import { modelMeta, tokens, rootRem, modelData, attentionHeadIdx, blockIdx } from '~/store';
 	import * as d3 from 'd3';
 	import { gsap } from '~/utils/gsap';
 	import Matrix from '~/components/common/Matrix.svelte';
+	import type { MatrixCellHandler, MatrixColorScale, MatrixSvgHandler } from '~/utils/matrixTypes';
 	import { onDestroy, onMount } from 'svelte';
 	import resolveConfig from 'tailwindcss/resolveConfig';
 	import tailwindConfig from '../../../tailwind.config';
@@ -20,7 +22,9 @@
 		.map((col) => Array($tokens.length).fill(-Infinity));
 
 	// generate data
-	$: softmaxed = $modelData?.outputs?.[`block_${$blockIdx}_attn_head_${$attentionHeadIdx}_attn_dropout`]?.data || placeHolderData;
+	$: softmaxed =
+		$modelData?.outputs?.[`block_${$blockIdx}_attn_head_${$attentionHeadIdx}_attn_dropout`]?.data ||
+		placeHolderData;
 
 	const visibleDimension = 8;
 	$: tokenLen = $tokens.length;
@@ -40,40 +44,40 @@
 		);
 
 	// color scale
-	const valueColorScale = (d, i) => {
+	const valueColorScale: MatrixColorScale = (d, i) => {
 		return d3.interpolate(theme.colors['green'][100], theme.colors['green'][400])(d);
 	};
 
-	const outColorScale = (d, i) => {
+	const outColorScale: MatrixColorScale = (d, i) => {
 		return d3.interpolate(theme.colors['purple'][100], theme.colors['purple'][400])(d);
 	};
 
-	const softmaxColorScale = (d, i) => {
+	const softmaxColorScale: MatrixColorScale = (d, i) => {
 		return d3.interpolate('white', theme.colors['purple'][700])(d);
 	};
 
 	// animation
 	let isAnimationActive = false;
 	let progress = 0;
-	let timeline = gsap.timeline();
+	let timeline: GSAPTimeline = gsap.timeline();
 
+	let animationStartTimeout: ReturnType<typeof setTimeout> | undefined;
 	onMount(() => {
 		timeline.eventCallback('onUpdate', () => {
 			progress = timeline.progress();
 			if (progress === 1) isAnimationActive = false;
 		});
 
-		setTimeout(() => {
+		animationStartTimeout = setTimeout(() => {
+			animationStartTimeout = undefined;
 			isAnimationActive = true;
 			draw();
 		}, 300);
 	});
 
 	onDestroy(() => {
-		if (timeline) {
-			timeline.kill();
-			timeline = null;
-		}
+		if (animationStartTimeout !== undefined) clearTimeout(animationStartTimeout);
+		timeline.kill();
 	});
 
 	const draw = () => {
@@ -244,12 +248,12 @@
 	let highlightCol: number | undefined = undefined;
 	let highlightRow: number | undefined = undefined;
 
-	const onMouseOverCell = (e, d) => {
+	const onMouseOverCell: MatrixCellHandler = (_event, d) => {
 		if (isAnimationActive) return;
 		highlightRow = d.rowIndex;
 		highlightCol = d.colIndex;
 	};
-	const onMouseOutSvg = () => {
+	const onMouseOutSvg: MatrixSvgHandler = () => {
 		highlightCol = undefined;
 		highlightRow = undefined;
 	};
@@ -257,13 +261,13 @@
 
 <WeightPopoverCard
 	id="attention"
-	title={`Attention Head ${$attentionHeadIdx + 1} Out`}
+	title={$t('popover.attention.title', { head: $attentionHeadIdx + 1 })}
 	bind:isAnimationActive
 	{timeline}
 >
 	<div class="attention-weight-poover weight-popover-content flex items-center justify-start">
 		<div class="matrix flex flex-col items-center">
-			<div class="title">Attention</div>
+			<div class="title">{$t('popover.attention.attention')}</div>
 			<Matrix
 				className="attention-matrix"
 				data={maskArray(softmaxed)}
@@ -287,7 +291,7 @@
 			</div>
 		</div>
 		<div class="matrix flex flex-col items-center">
-			<div class="title flex items-center gap-1">Value</div>
+			<div class="title flex items-center gap-1">{$t('popover.value')}</div>
 			<div class="flex gap-0">
 				<Matrix
 					className="value-matrix"
@@ -315,7 +319,7 @@
 			</div>
 		</div>
 		<div class="matrix flex flex-col items-center">
-			<div class="title">Out</div>
+			<div class="title">{$t('popover.out')}</div>
 			<div class="flex">
 				<Matrix
 					className="head-out-matrix"

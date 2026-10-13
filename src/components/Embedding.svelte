@@ -12,18 +12,19 @@
 	} from '~/store';
 	import classNames from 'classnames';
 	import { gsap, Flip } from '~/utils/gsap';
-	import { tick, setContext, getContext, onMount } from 'svelte';
+	import { onDestroy, tick, setContext, getContext, onMount } from 'svelte';
 	import VectorCanvas from './common/VectorCanvas.svelte';
 	import * as d3 from 'd3';
 	import HelpPopover from './common/HelpPopover.svelte';
 	import tailwindConfig from '../../tailwind.config';
 	import resolveConfig from 'tailwindcss/resolveConfig';
 	import { ga } from '~/utils/event';
-	import { Tooltip } from 'flowbite-svelte';
-	import { ZoomInOutline } from 'flowbite-svelte-icons';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
+	import ZoomInOutline from 'flowbite-svelte-icons/ZoomInOutline.svelte';
 
 	import TextbookTooltip from './common/TextbookTooltip.svelte';
 	import { textPages } from '~/utils/textbookPages';
+	import { t } from '~/i18n';
 
 	const { theme } = resolveConfig(tailwindConfig);
 
@@ -31,7 +32,7 @@
 
 	setContext('block-id', 'embedding');
 
-	const blockId = getContext('block-id');
+	const blockId = getContext<string>('block-id');
 
 	let isEmbeddingExpanded = false;
 
@@ -51,10 +52,10 @@
 		}
 	};
 
-	const onClickEmbeddingTitle = (e) => {
+	const onClickEmbeddingTitle = (e: MouseEvent | KeyboardEvent) => {
 		e.stopPropagation();
 		e.preventDefault();
-		textPages.find((page) => page.id === 'embedding')?.complete();
+		textPages.find((page) => page.id === 'embedding')?.complete?.();
 
 		if (!isEmbeddingExpanded) {
 			expandedBlock.set({ id: blockId });
@@ -63,46 +64,78 @@
 		}
 	};
 
-	let expandableEl: HTMLDivElement;
+	let expandableEl: HTMLDivElement | undefined;
 
-	function handleOutsideClick(e) {
-		if (isEmbeddingExpanded && !expandableEl.contains(e.target)) {
+	function handleOutsideClick(e: MouseEvent) {
+		if (
+			isEmbeddingExpanded &&
+			expandableEl &&
+			e.target instanceof Node &&
+			!expandableEl.contains(e.target)
+		) {
 			expandedBlock.set({ id: null });
 		}
 	}
 	onMount(() => {
-		document.querySelector('.main-section').addEventListener('click', handleOutsideClick);
+		const mainSection = document.querySelector<HTMLElement>('.main-section');
+		if (!mainSection) return;
+
+		mainSection.addEventListener('click', handleOutsideClick);
 		return () => {
-			document.querySelector('.main-section').removeEventListener('click', handleOutsideClick);
+			mainSection.removeEventListener('click', handleOutsideClick);
 		};
 	});
 
 	// animation
-	let containerState: any;
-
 	// google analytics
-	let startTime = null;
+	let startTime: number | null = null;
+	let isDestroyed = false;
+	let isOwnedAnimationRunning = false;
+	type AnimationHandle = ReturnType<typeof Flip.from> | ReturnType<typeof gsap.to>;
+	const activeAnimations = new Set<AnimationHandle>();
+
+	onDestroy(() => {
+		isDestroyed = true;
+		for (const animation of activeAnimations) animation.kill();
+		activeAnimations.clear();
+		if (isOwnedAnimationRunning) {
+			isOwnedAnimationRunning = false;
+			isExpandOrCollapseRunning.set(false);
+		}
+	});
 
 	const expandEmbedding = async () => {
-		containerState = Flip.getState('.embedding .token-column');
+		const containerState = Flip.getState('.embedding .token-column');
 		isEmbeddingExpanded = true;
 
 		await tick();
+		if (isDestroyed || !expandableEl?.isConnected) return;
 
+		isOwnedAnimationRunning = true;
 		isExpandOrCollapseRunning.set(true);
 
-		Flip.from(containerState, {
+		let flipAnimation: ReturnType<typeof Flip.from> | undefined;
+		flipAnimation = Flip.from(containerState, {
 			duration: 0.5,
 			ease: 'power2.inOut',
 			onComplete: () => {
+				if (flipAnimation) activeAnimations.delete(flipAnimation);
+				if (isDestroyed) return;
+				isOwnedAnimationRunning = false;
 				isExpandOrCollapseRunning.set(false);
 			}
 		});
-		gsap.to('.embedding-detail', {
+		activeAnimations.add(flipAnimation);
+		let detailAnimation: ReturnType<typeof gsap.to> | undefined;
+		detailAnimation = gsap.to('.embedding-detail', {
 			opacity: 1,
 			duration: 0.5,
-			delay: 0.5
+			delay: 0.5,
+			onComplete: () => {
+				if (detailAnimation) activeAnimations.delete(detailAnimation);
+			}
 		});
+		activeAnimations.add(detailAnimation);
 
 		startTime = performance.now();
 		window.dataLayer?.push({
@@ -114,8 +147,8 @@
 	};
 
 	const collapseEmbedding = async () => {
-		let endTime = performance.now();
-		let visibleDuration = endTime - startTime;
+		const endTime = performance.now();
+		const visibleDuration = startTime === null ? 0 : endTime - startTime;
 
 		window.dataLayer?.push({
 			event: 'visibility-hide',
@@ -125,19 +158,26 @@
 			user_id: $userId
 		});
 
-		containerState = Flip.getState('.embedding .token-column');
+		const containerState = Flip.getState('.embedding .token-column');
 		isEmbeddingExpanded = false;
 		await tick();
+		if (isDestroyed || !expandableEl?.isConnected) return;
 
+		isOwnedAnimationRunning = true;
 		isExpandOrCollapseRunning.set(true);
 
-		Flip.from(containerState, {
+		let flipAnimation: ReturnType<typeof Flip.from> | undefined;
+		flipAnimation = Flip.from(containerState, {
 			duration: 0.5,
 			ease: 'power2.inOut',
 			onComplete: () => {
+				if (flipAnimation) activeAnimations.delete(flipAnimation);
+				if (isDestroyed) return;
+				isOwnedAnimationRunning = false;
 				isExpandOrCollapseRunning.set(false);
 			}
 		});
+		activeAnimations.add(flipAnimation);
 	};
 
 	let isHovered = false;
@@ -174,7 +214,7 @@
 		data-click="embedding-step-title"
 	>
 		<div class="title-text flex w-max items-center gap-1">
-			Embedding
+			{$t('viz.embedding')}
 			<ZoomInOutline></ZoomInOutline>
 		</div>
 	</div>
@@ -184,7 +224,7 @@
 			<!-- token -->
 			<div class="column token-string relative">
 				{#if isEmbeddingExpanded}<div class="subtitle embedding-detail">
-						<TextbookTooltip id="token-embedding">Tokenization</TextbookTooltip>
+						<TextbookTooltip id="token-embedding">{$t('viz.tokenization')}</TextbookTooltip>
 					</div>{/if}
 				{#each $tokens as token, index}
 					<div class="cell" class:last={index === $tokens.length - 1}>
@@ -196,7 +236,8 @@
 				<!-- token id and embedding -->
 				<div class="column token-embedding embedding-detail">
 					<div class="subtitle flex items-center gap-1">
-						<TextbookTooltip id="token-embedding"><span>Token<br />Embedding</span></TextbookTooltip
+						<TextbookTooltip id="token-embedding"
+							><span>{$t('viz.tokenEmbedding')}</span></TextbookTooltip
 						>
 						<!-- <HelpPopover
 							id="token-embedding"
@@ -227,7 +268,7 @@
 								</div>
 								<span class="index-val text-xs">
 									{#if index === 0}
-										<span class="label">id</span><br />
+										<span class="label">{$t('viz.id')}</span><br />
 									{/if}
 									<span class="val">{$tokenIds[index]}</span>
 								</span>
@@ -244,7 +285,7 @@
 				<div class="column embedding-detail position-embedding">
 					<div class="subtitle flex gap-1">
 						<TextbookTooltip id="positional-encoding">
-							<span>Positional<br />Encoding</span>
+							<span>{$t('viz.positionalEncoding')}</span>
 						</TextbookTooltip>
 						<!-- <HelpPopover
 							id="position-embedding"
@@ -259,7 +300,7 @@
 									active
 									colorScale={(d, i) => {
 										return d3
-											.scaleDiverging()
+											.scaleDiverging<string>()
 											.domain([0, 0.5, 1])
 											.range([theme.colors['red'][400], 'white', theme.colors['blue'][400]])(d);
 									}}
@@ -267,7 +308,7 @@
 							</div>
 							<span class="index-val text-xs">
 								{#if index === 0}
-									<span class="label">position</span><br />
+									<span class="label">{$t('viz.position')}</span><br />
 								{/if}
 								<span class="val">{index}</span>
 							</span>
@@ -280,7 +321,7 @@
 					{/each}
 				</div>
 				<Tooltip triggeredBy=".embedding .vector" class="popover" placement="right"
-					>vector({$modelMeta.dimension})</Tooltip
+					>{$t('viz.vectorSize', { n: $modelMeta.dimension })}</Tooltip
 				>
 				<!-- <PositionalEncodingPopover triggeredBy=".position-embedding" /> -->
 			{/if}
@@ -295,7 +336,7 @@
 				{/each}
 			</div>
 			<Tooltip triggeredBy=".step.embedding .vector" class="popover" placement="right"
-				>vector({$modelMeta.dimension})</Tooltip
+				>{$t('viz.vectorSize', { n: $modelMeta.dimension })}</Tooltip
 			>
 		</div>
 	</div>

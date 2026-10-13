@@ -1,14 +1,14 @@
 <script lang="ts">
 	import '~/styles/app.css';
 	import '~/styles/global.scss';
+	import 'katex/dist/katex.min.css';
 	import Topbar from '~/components/Topbar.svelte';
 	import { isLoaded, predictedColor, rootRem, userId } from '~/store';
 	import Article from '~/components/article/Article.svelte';
 	import { onMount } from 'svelte';
-	import { Spinner } from 'flowbite-svelte';
-	import Alert from '~/components/Alert.svelte';
-	import GTM from '~/utils/gtm.svelte';
+	import Spinner from 'flowbite-svelte/Spinner.svelte';
 	import { page } from '$app/stores';
+	import { initLocale } from '~/i18n';
 
 	let topBarHeight = 0;
 	let scrollLeft = 0;
@@ -22,6 +22,7 @@
 
 	onMount(() => {
 		isLoaded.set(true);
+		initLocale();
 
 		const userIdParam = $page.url.searchParams.get('userId');
 
@@ -66,7 +67,6 @@
 	};
 </script>
 
-<GTM />
 <div
 	id="app"
 	style={`--min-screen-width:${minScreenWidth}px;--min-column-width:${minColumWidth}px;--predicted-color:${predictedColor};`}
@@ -88,18 +88,7 @@
 	</div>
 </div>
 
-<div class="alert">
-	<Alert />
-</div>
-
 <style lang="scss">
-	.alert {
-		position: fixed;
-		bottom: 1rem;
-		left: 1rem;
-		z-index: 9999;
-	}
-
 	#app {
 		height: 100vh;
 		min-width: 900px;

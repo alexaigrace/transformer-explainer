@@ -1,91 +1,135 @@
-import { PreTrainedTokenizer } from '@xenova/transformers';
+import type { PreTrainedTokenizer } from '@xenova/transformers';
 import * as ort from 'onnxruntime-web';
-import {
-	modelData,
-	tokens,
-	tokenIds,
-	isModelRunning,
-	predictedToken,
-	modelSession,
-	modelMetaMap
-} from '~/store';
-import { get } from 'svelte/store';
+import { modelData, tokens, tokenIds, isModelRunning, predictedToken, modelMetaMap } from '~/store';
 import { reshapeArray } from './array';
 import { showFlowAnimation } from './animation';
+
+const waitForAnimationTurn = (signal?: AbortSignal): Promise<boolean> => {
+	if (signal?.aborted) return Promise.resolve(false);
+
+	return new Promise((resolve) => {
+		let timerId: ReturnType<typeof setTimeout> | undefined;
+		let settled = false;
+
+		const settle = (shouldContinue: boolean) => {
+			if (settled) return;
+			settled = true;
+			if (timerId !== undefined) clearTimeout(timerId);
+			signal?.removeEventListener('abort', handleAbort);
+			resolve(shouldContinue);
+		};
+
+		const handleAbort = () => settle(false);
+
+		signal?.addEventListener('abort', handleAbort, { once: true });
+		timerId = setTimeout(() => settle(true), 0);
+		if (signal?.aborted) handleAbort();
+	});
+};
 
 export const fakeRunWithCachedData = async ({
 	cachedData,
 	tokenizer,
 	temperature,
-	sampling
+	sampling,
+	signal
 }: {
-	cachedData: any;
+	cachedData: ModelData & { tokens: string[]; tokenIds: number[] };
 	tokenizer: PreTrainedTokenizer;
 	temperature: number;
 	sampling: Sampling;
+	signal?: AbortSignal;
 }) => {
+	if (signal?.aborted) return;
 	isModelRunning.set(true);
 
-	modelData.set(cachedData);
-	tokens.set(cachedData.tokens);
-	tokenIds.set(cachedData.tokenIds);
+	try {
+		modelData.set(cachedData);
+		tokens.set(cachedData.tokens);
+		tokenIds.set(cachedData.tokenIds);
 
-	setTimeout(async () => {
-		await showFlowAnimation(cachedData.tokens.length, true);
-		adjustTemperature({
+		if (!(await waitForAnimationTurn(signal))) return;
+		await showFlowAnimation(cachedData.tokens.length, true, signal);
+		if (signal?.aborted) return;
+
+		await adjustTemperature({
 			tokenizer,
 			logits: cachedData.logits,
 			temperature,
 			sampling
 		});
-		isModelRunning.set(false);
-	}, 0);
+	} finally {
+		if (!signal?.aborted) isModelRunning.set(false);
+	}
 };
 
 export const runModel = async ({
 	tokenizer,
 	input,
 	temperature,
-	sampling
+	sampling,
+	session,
+	signal
 }: {
 	tokenizer: PreTrainedTokenizer;
 	input: string;
 	temperature: number;
 	sampling: Sampling;
+	session: ort.InferenceSession;
+	signal?: AbortSignal;
 }) => {
+	if (signal?.aborted) return;
+	if (!session) throw new Error('Model session is not initialized.');
+
 	isModelRunning.set(true);
 
-	const { token_ids, input_tokens } = await getTokenization(tokenizer, input === '' ? ' ' : input);
+	try {
+		const { token_ids, input_tokens } = await getTokenization(
+			tokenizer,
+			input === '' ? ' ' : input
+		);
+		if (signal?.aborted) return;
 
-	let isOneTokenAdded: boolean;
-	tokens.set(input_tokens);
-	tokenIds.update((prev) => {
-		isOneTokenAdded =
-			prev.length === token_ids.length - 1 && prev.every((id, idx) => id === token_ids[idx]);
-		return token_ids;
-	});
+		let isOneTokenAdded = false;
+		tokens.set(input_tokens);
+		tokenIds.update((prev) => {
+			isOneTokenAdded =
+				prev.length === token_ids.length - 1 && prev.every((id, idx) => id === token_ids[idx]);
+			return token_ids;
+		});
 
-	const { logits, outputs } = await getData(token_ids);
+		const { logits, outputs } = await getData(token_ids, session);
+		if (signal?.aborted) return;
 
-	const { probabilities, sampled } = getProbabilities({ tokenizer, logits, sampling, temperature });
+		const { probabilities, sampled } = getProbabilities({
+			tokenizer,
+			logits,
+			sampling,
+			temperature
+		});
 
-	modelData.set({ logits, outputs, probabilities, sampled });
+		modelData.set({ logits, outputs, probabilities, sampled });
 
-	// To ensure the animation starts after all elements have been rendered
-	setTimeout(async () => {
-		await showFlowAnimation(input_tokens.length, isOneTokenAdded);
+		// Start after the DOM has rendered the newly published model output.
+		if (!(await waitForAnimationTurn(signal))) return;
+		await showFlowAnimation(input_tokens.length, isOneTokenAdded, signal);
+		if (signal?.aborted) return;
 
 		predictedToken.set(sampled);
 		// setPredictedTokenForAnimation(probabilities, sampled, sampling);
-
-		isModelRunning.set(false);
-	}, 0);
+	} finally {
+		if (!signal?.aborted) isModelRunning.set(false);
+	}
 };
 
-const setPredictedTokenForAnimation = (probabilities, sampled, sampling) => {
-	let delay = 10;
-	let topK = probabilities.slice(0, sampling.value);
-	let animationTokens = [...topK, ...topK.slice(sampled.rank).reverse()];
+const setPredictedTokenForAnimation = (
+	probabilities: Probabilities,
+	sampled: Probability,
+	sampling: Sampling
+) => {
+	const delay = 10;
+	const topK = probabilities.slice(0, sampling.value);
+	const animationTokens = [...topK, ...topK.slice(sampled.rank).reverse()];
 
 	for (let i = 0; i < animationTokens.length; i++) {
 		setTimeout(() => {
@@ -123,16 +167,10 @@ export const getTokenization = async (tokenizer: PreTrainedTokenizer, input: str
 	};
 };
 
-export const getData = async (token_ids: number[]) => {
+export const getData = async (token_ids: number[], session: ort.InferenceSession) => {
 	try {
 		// Convert token_ids to tensor
 		const inputTensor = new ort.Tensor('int64', token_ids, [1, token_ids.length]);
-
-		// Get the session from the store
-		const session = get(modelSession);
-		if (!session) {
-			throw new Error('Model session is not initialized.');
-		}
 
 		// Prepare the feeds (inputs)
 		const feeds = { input: inputTensor };
@@ -141,30 +179,51 @@ export const getData = async (token_ids: number[]) => {
 		const results = await session.run(feeds);
 
 		// Extract the logits
-		const logits = results['linear_output'].data;
+		const logits = getFloatTensorData(results['linear_output'], 'linear_output');
+		if (
+			typeof window !== 'undefined' &&
+			new URLSearchParams(window.location.search).get('startupDebug') === '1'
+		) {
+			console.info(
+				'STARTUP_BENCH inference',
+				JSON.stringify({
+					tokenIds: token_ids,
+					tensors: Object.fromEntries(
+						Object.entries(results).map(([name, tensor]) => [name, tensor.dims])
+					),
+					logits: logits.slice(0, 8)
+				})
+			);
+		}
 
-		// Extract the dictionary values
-		const outputs = targetTensors.reduce(
-			(obj, key) => {
-				const out = results[key];
-				const processedData = {
-					// ...out,
-					data: reshapeArray([...out.cpuData], out.dims)
-				};
-				obj[key] = processedData;
-				return obj;
-			},
-			{} as ModelData['outputs']
-		);
+		// Attention outputs are FLOAT tensors with batch x query x key dimensions.
+		const outputs: ModelData['outputs'] = {};
+		for (const key of targetTensors) {
+			const output = results[key];
+			outputs[key] = {
+				data: reshapeArray(getFloatTensorData(output, key), output.dims)
+			};
+		}
 
 		return {
 			logits,
 			outputs
 		};
 	} catch (error) {
-		console.error('Error during inference:', error.message);
+		console.error(
+			'Error during inference:',
+			error instanceof Error ? error.message : String(error)
+		);
 		throw error;
 	}
+};
+
+const getFloatTensorData = (tensor: ort.Tensor, tensorName: string): number[] => {
+	if (tensor.type !== 'float32' || !(tensor.data instanceof Float32Array)) {
+		throw new Error(`Expected ${tensorName} to be a float32 tensor.`);
+	}
+
+	return Array.from(tensor.data);
 };
 
 export const getProbabilities = ({

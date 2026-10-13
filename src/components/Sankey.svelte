@@ -24,34 +24,52 @@
 		TRANSFORMER_BLOCKS
 	} from '~/constants/opacity';
 	import { textPages } from '~/utils/textbookPages';
+	import { t } from '~/i18n';
 
 	const { theme } = resolveConfig(tailwindConfig);
 
-	let svgBackEl: HTMLOrSVGElement;
-	let svgEl: HTMLOrSVGElement;
+	let svgBackEl: SVGSVGElement | undefined;
+	let svgEl: SVGSVGElement | undefined;
 
-	let resizeObserver: ResizeObserver;
 	let screenWidth: number;
 
 	$: curveFactor = Math.floor(screenWidth / 1000) || 1;
 	$: defaultCurveOffset = 40 * (curveFactor - 1) + 80;
 
-	type PathMap = Record<
-		string,
-		{
-			from: string;
-			to: string;
-			gradientId?: string;
-			fill?: string;
-			opacity?: number;
-			curve?: number;
-			type?: 'stroke' | 'shape';
-			id?: string;
-			pathGenerator?: (source: DOMRect, target: DOMRect, curve: number) => string;
-		}[]
-	>;
+	type PathGenerator = (source: DOMRect, target: DOMRect, curve: number) => string;
+	type SankeyPath = {
+		from: string;
+		to: string;
+		gradientId?: string;
+		fill?: string;
+		opacity?: number;
+		curve?: number;
+		type?: 'stroke' | 'shape';
+		id?: string;
+		unique?: boolean;
+		pathGenerator?: PathGenerator;
+		onMouseOver?: (datum: RenderedPath) => void;
+		onMouseOut?: (datum: RenderedPath) => void;
+		onMouseClick?: (event: MouseEvent, datum: RenderedPath) => void;
+	};
+	type RenderedPath = Pick<
+		SankeyPath,
+		'fill' | 'opacity' | 'type' | 'id' | 'onMouseOver' | 'onMouseOut' | 'onMouseClick'
+	> & {
+		isLast: boolean;
+		path: string;
+		stroke: string | null;
+		clickable: boolean;
+	};
+	type PathMap = Record<string, SankeyPath[]>;
 
-	const backPaths = [
+	let qkvPaths: SankeyPath[] = [];
+	let attentionPaths: SankeyPath[] = [];
+	let mlpUpPaths: SankeyPath[] = [];
+	let mlpDownPaths: SankeyPath[] = [];
+	let pathMap: PathMap = {};
+
+	const backPaths: SankeyPath[] = [
 		{
 			from: '.qkv .qkv-column .query',
 			to: '.head-block .query .vector',
@@ -118,7 +136,7 @@
 			onMouseOver: () => {
 				const paths = d3.select(`g.qkv`).selectAll('path');
 				paths.transition().duration(100).style('opacity', 1);
-				tooltip.set('click to see QKV calculation');
+				tooltip.set($t('sankey.tooltipQkv'));
 			},
 			onMouseOut: () => {
 				const paths = d3.select(`g.qkv`).selectAll('path');
@@ -127,7 +145,7 @@
 			},
 			onMouseClick: (e, d) => {
 				e.stopPropagation();
-				textPages.find((page) => page.id === 'qkv')?.complete();
+				textPages.find((page) => page.id === 'qkv')?.complete?.();
 
 				if ($weightPopover === 'qkv') weightPopover.set(null);
 				else weightPopover.set('qkv');
@@ -241,7 +259,7 @@
 				d3.select('path.value-to-out').transition().duration(100).style('opacity', 0.8);
 				d3.select('path.to-attention-out').transition().duration(100).style('opacity', 0.8);
 
-				tooltip.set('click to see Attention Out calculation');
+				tooltip.set($t('sankey.tooltipAttentionOut'));
 			},
 			onMouseOut: () => {
 				d3.select('path.value-to-out').transition().duration(100).style('opacity', ATTENTION_OUT);
@@ -254,7 +272,7 @@
 			},
 			onMouseClick: (e, d) => {
 				e.stopPropagation();
-				textPages.find((page) => page.id === 'output-concatenation')?.complete();
+				textPages.find((page) => page.id === 'output-concatenation')?.complete?.();
 
 				if ($weightPopover === 'attention') weightPopover.set(null);
 				else weightPopover.set('attention');
@@ -284,7 +302,7 @@
 				d3.select('path.value-to-out').transition().duration(100).style('opacity', 0.8);
 				d3.select('path.to-attention-out').transition().duration(100).style('opacity', 0.8);
 
-				tooltip.set('click to see Attention Out calculation');
+				tooltip.set($t('sankey.tooltipAttentionOut'));
 			},
 			onMouseOut: () => {
 				d3.select('path.value-to-out').transition().duration(100).style('opacity', ATTENTION_OUT);
@@ -297,7 +315,7 @@
 			},
 			onMouseClick: (e, d) => {
 				e.stopPropagation();
-				textPages.find((page) => page.id === 'output-concatenation')?.complete();
+				textPages.find((page) => page.id === 'output-concatenation')?.complete?.();
 
 				if ($weightPopover === 'attention') weightPopover.set(null);
 				else weightPopover.set('attention');
@@ -330,7 +348,7 @@
 			onMouseOver: () => {
 				const paths = d3.select(`g.mlpUp`).selectAll('path');
 				paths.transition().duration(100).style('opacity', 0.6);
-				tooltip.set('click to see MLP process');
+				tooltip.set($t('sankey.tooltipMlp'));
 			},
 			onMouseOut: () => {
 				const paths = d3.select(`g.mlpUp`).selectAll('path');
@@ -372,7 +390,7 @@
 			onMouseOver: () => {
 				const paths = d3.select(`g.mlpDown`).selectAll('path');
 				paths.transition().duration(100).style('opacity', 0.6);
-				tooltip.set('click to see MLP process');
+				tooltip.set($t('sankey.tooltipMlp'));
 			},
 			onMouseOut: () => {
 				const paths = d3.select(`g.mlpDown`).selectAll('path');
@@ -467,7 +485,7 @@
 				onMouseOver: () => {
 					const paths = d3.select(`g.softmax`).selectAll('path');
 					paths.transition().duration(100).style('opacity', 1);
-					tooltip.set('click to see Logits calculation');
+					tooltip.set($t('sankey.tooltipLogits'));
 					// showTooltip('');
 				},
 				onMouseOut: () => {
@@ -478,7 +496,7 @@
 				},
 				onMouseClick: (e, d) => {
 					e.stopPropagation();
-					textPages.find((page) => page.id === 'output-logit')?.complete();
+					textPages.find((page) => page.id === 'output-logit')?.complete?.();
 
 					if ($weightPopover === 'softmax') weightPopover.set(null);
 					else weightPopover.set('softmax');
@@ -488,11 +506,12 @@
 	};
 
 	const createGradients = () => {
+		if (!svgEl?.isConnected) return;
+
 		const svg = d3.select(svgEl);
 		const defs = svg.append('defs');
 
-		Object.keys(gradientMap).forEach((key) => {
-			const stops = gradientMap[key];
+		Object.entries(gradientMap).forEach(([key, stops]) => {
 			const grad = defs
 				.append('linearGradient')
 				.attr('id', key)
@@ -511,13 +530,14 @@
 				.attr('x2', '100%')
 				.attr('y2', '0%');
 
-			Object.keys(stops).forEach((stop) => {
-				let color, opacity;
-				if (typeof stops[stop] !== 'string') {
-					color = stops[stop].color;
-					opacity = stops[stop].opacity;
+			Object.entries(stops).forEach(([stop, stopValue]) => {
+				let color: string;
+				let opacity: number;
+				if (typeof stopValue !== 'string') {
+					color = stopValue.color;
+					opacity = stopValue.opacity;
 				} else {
-					color = stops[stop];
+					color = stopValue;
 					opacity = 1;
 				}
 
@@ -538,41 +558,48 @@
 
 	const drawPath = async () => {
 		await tick();
+		if (!svgEl?.isConnected || !svgBackEl?.isConnected) return;
+
 		const svg = d3.select(svgEl);
 		const svgBack = d3.select(svgBackEl);
 
-		[
+		const pathGroups: {
+			dataMap: PathMap;
+			svg: d3.Selection<SVGSVGElement, unknown, null, undefined>;
+		}[] = [
 			{ dataMap: pathMap, svg },
 			{ dataMap: backPathMap, svg: svgBack }
-		].forEach(({ dataMap, svg }) => {
-			const g = svg
-				.selectAll('g.path-group')
-				.data(Object.keys(dataMap))
+		];
+
+		pathGroups.forEach(({ dataMap, svg: svgSelection }) => {
+			const g = svgSelection
+				.selectAll<SVGGElement, string>('g.path-group')
+				.data<string>(Object.keys(dataMap))
 				.join('g')
 				.attr('class', (d) => `path-group ${d}`);
 
-			g.selectAll('path.sankey-path')
-				.data((d) => {
-					const data = dataMap[d].map((item) => {
+			g.selectAll<SVGPathElement, RenderedPath>('path.sankey-path')
+				.data<RenderedPath>((groupKey) => {
+					const data = dataMap[groupKey].map((item) => {
 						const { from, to, curve, pathGenerator, gradientId, unique, ...rest } = item;
-						const sources = d3.selectAll(from).nodes() as Element[];
-						const targets = d3.selectAll(to).nodes() as Element[];
+						const sources = d3.selectAll<Element, unknown>(from).nodes();
+						const targets = d3.selectAll<Element, unknown>(to).nodes();
 
-						return sources.map((src, i) => {
-							const source = src?.getBoundingClientRect();
+						return sources.map((src, i): RenderedPath => {
+							const source = src.getBoundingClientRect();
 							const target = targets[i]?.getBoundingClientRect();
 
 							const curveOffset = curve || defaultCurveOffset;
 
 							const generator = pathGenerator || defaultPathGenerator;
-							const path = source && target ? generator(source, target, curveOffset) : '';
+							const path = target ? generator(source, target, curveOffset) : '';
 
 							const isLast = targets.length > 1 && i === sources.length - 1;
-							let gradUrl = gradientId;
-
-							if (isLast && !unique && document.getElementById(gradientId + '-last')) {
-								gradUrl = gradientId + '-last';
-							}
+							const resolvedGradientId = gradientId
+								? isLast && !unique && document.getElementById(`${gradientId}-last`)
+									? `${gradientId}-last`
+									: gradientId
+								: undefined;
 
 							return {
 								isLast: i === sources.length - 1,
@@ -580,15 +607,15 @@
 								fill:
 									item.type === 'stroke'
 										? 'none'
-										: item.gradientId
-											? `url(#${gradUrl})`
+										: resolvedGradientId
+											? `url(#${resolvedGradientId})`
 											: item.fill,
 								opacity: item.opacity,
 								stroke:
 									item.type === 'stroke'
 										? item.gradientId
 											? `url(#${item.gradientId})`
-											: item.fill
+											: (item.fill ?? null)
 										: 'none',
 								clickable: !!item.onMouseClick,
 								...rest
@@ -600,19 +627,19 @@
 				})
 				.join('path')
 				.attr('class', (d) => `sankey-path ${d.id || ''} ${d.isLast ? 'last' : ''}`)
-				.attr('fill', (d) => d.fill)
+				.attr('fill', (d) => d.fill ?? null)
 				.attr('stroke', (d) => d.stroke)
 				.attr('stroke-width', 2)
-				.attr('opacity', (d) => d.opacity)
+				.attr('opacity', (d) => d.opacity ?? null)
 				.attr('cursor', (d) => d.clickable && 'pointer')
 				.attr('d', (d) => d.path)
-				.on('mouseenter', (e, d) => d.onMouseOver?.(d))
-				.on('mouseleave', (e, d) => d.onMouseOut?.(d))
-				.on('click', (e, d) => d.onMouseClick?.(e, d));
+				.on('mouseenter', (_event: MouseEvent, d) => d.onMouseOver?.(d))
+				.on('mouseleave', (_event: MouseEvent, d) => d.onMouseOut?.(d))
+				.on('click', (event: MouseEvent, d) => d.onMouseClick?.(event, d));
 		});
 	};
 
-	const defaultPathGenerator = (source, target, curve: number) => {
+	const defaultPathGenerator: PathGenerator = (source, target, curve) => {
 		const scrollTop = window.scrollY;
 		const scrollLeft = window.scrollX;
 		const { curveOffset } = pathAdjustor(source, target, curve);
@@ -626,7 +653,7 @@
     `;
 	};
 
-	const pathAdjustor = (source, target, curve: number) => {
+	const pathAdjustor = (source: DOMRect, target: DOMRect, curve: number) => {
 		const distance = target.left - source.right;
 		const maxDistance = 100;
 
@@ -644,14 +671,13 @@
 		};
 
 		// animate during resizing
-		resizeObserver = new ResizeObserver(updateSvgs);
+		const resizeObserver = new ResizeObserver(updateSvgs);
 
-		const elements = document?.querySelectorAll('.resize-watch');
+		const elements = document.querySelectorAll('.resize-watch');
 		elements.forEach((el) => resizeObserver.observe(el));
 
-		const transition = document?.querySelector('.transition-watch');
-
-		resizeObserver.observe(transition);
+		const transition = document.querySelector('.transition-watch');
+		if (transition) resizeObserver.observe(transition);
 
 		// redraw when data updated
 		const unsubscribeAttnIdx = attentionHeadIdx.subscribe(async (newIdx) => {
@@ -672,24 +698,29 @@
 	}
 
 	const drawResidualPath = () => {
+		if (!svgEl?.isConnected) return;
+
 		const svg = d3.select(svgEl);
 
-		const starts = d3.selectAll(`.residual-start path.head`).nodes();
-		const ends = d3.selectAll(`.residual-end path.head`).nodes();
+		const starts = d3.selectAll<SVGPathElement, unknown>(`.residual-start path.head`).nodes();
+		const ends = d3.selectAll<SVGPathElement, unknown>(`.residual-end path.head`).nodes();
 
-		const lineData = starts.map((start, i) => {
+		const lineData = starts.flatMap((start, i) => {
+			const end = ends[i];
+			if (!end) return [];
+
 			const startEl = start.getBoundingClientRect();
-			const endEl = ends[i].getBoundingClientRect();
+			const endEl = end.getBoundingClientRect();
 
 			const x1 = startEl.right;
 			const y1 = startEl.top;
 			const x2 = endEl.left;
 			const y2 = endEl.top;
 
-			return { x1, y1, x2, y2, id: start.id };
+			return [{ x1, y1, x2, y2, id: start.id }];
 		});
 		svg
-			.selectAll('line.residual-connector')
+			.selectAll<SVGLineElement, (typeof lineData)[number]>('line.residual-connector')
 			.data(lineData)
 			.join('line')
 			.attr('class', (d) => `residual-connector ${d.id}`)

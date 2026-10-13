@@ -1,6 +1,7 @@
 <script>
-	import { Alert } from 'flowbite-svelte';
+	import Alert from 'flowbite-svelte/Alert.svelte';
 	import { fade } from 'svelte/transition';
+	import { t } from '~/i18n';
 
 	let showAlert = true;
 
@@ -13,13 +14,13 @@
 	<div transition:fade>
 		<Alert color="blue" dismissable>
 			<div class="alert-content">
-				We collect anonymous data for research.
+				{$t('alert.collect')}
 				<a
 					href="./consent-form.pdf"
 					class="font-semibold underline hover:text-blue-800 dark:hover:text-blue-900"
 					target="_blank"
 				>
-					Learn more
+					{$t('alert.learnMore')}
 				</a>
 			</div>
 		</Alert>
@@ -27,7 +28,4 @@
 {/if}
 
 <style lang="scss">
-	.alert-content {
-		// width: 30rem;
-	}
 </style>

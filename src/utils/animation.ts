@@ -7,14 +7,23 @@ import * as d3 from 'd3';
 const { theme } = resolveConfig(tailwindConfig);
 
 const getGradientStops = (className: string, stopIdx = 1) => {
-	return Array.from(document.querySelectorAll(className)).map(
-		(el) => el?.querySelectorAll('stop')[stopIdx]
+	return Array.from(document.querySelectorAll<SVGElement>(className)).map(
+		(el) => el.querySelectorAll<SVGStopElement>('stop')[stopIdx]
 	);
 };
+
+type GradientAnimationOptions = Omit<GSAPTweenVars, 'duration' | 'ease'> & {
+	color?: string;
+	duration?: number;
+	ease?: GSAPTweenVars['ease'];
+	offset?: { from?: string; to?: string };
+	position?: gsap.Position;
+};
+
 const generateGradientAnimation = (
-	tl,
+	tl: GSAPTimeline,
 	gradStop: undefined | SVGStopElement | (SVGStopElement | undefined)[],
-	options: GSAPTweenVars = {}
+	options: GradientAnimationOptions = {}
 ) => {
 	const {
 		color = 'rgba(255,255,255,0)',
@@ -27,12 +36,24 @@ const generateGradientAnimation = (
 
 	const { from = '0%', to = '100%' } = offset;
 
-	const initialColor = Array.isArray(gradStop)
-		? gradStop.map((d) => d.getAttribute('stop-color'))
-		: gradStop.getAttribute('stop-color');
+	let animationTargets: SVGStopElement | SVGStopElement[];
+	let initialColor: string | null | (string | null)[];
+	let stopsWithoutColor: SVGStopElement[];
+	if (Array.isArray(gradStop)) {
+		const validStops = gradStop.filter((stop): stop is SVGStopElement => stop !== undefined);
+		if (validStops.length === 0) return;
+		animationTargets = validStops;
+		initialColor = validStops.map((stop) => stop.getAttribute('stop-color'));
+		stopsWithoutColor = validStops.filter((stop) => stop.getAttribute('stop-color') === null);
+	} else {
+		if (!gradStop) return;
+		animationTargets = gradStop;
+		initialColor = gradStop.getAttribute('stop-color');
+		stopsWithoutColor = initialColor === null ? [gradStop] : [];
+	}
 
 	tl.fromTo(
-		gradStop,
+		animationTargets,
 		{ attr: { offset: from, ['stop-color']: color } },
 		{
 			attr: {
@@ -45,11 +66,12 @@ const generateGradientAnimation = (
 		},
 		position
 	).to(
-		gradStop,
+		animationTargets,
 		{
 			attr: {
 				offset: to,
-				['stop-color']: (i) => (Array.isArray(gradStop) ? initialColor[i] : initialColor)
+				['stop-color']: (i: number): string =>
+					(Array.isArray(initialColor) ? initialColor[i] : initialColor) ?? color
 			},
 			duration,
 			ease,
@@ -57,11 +79,17 @@ const generateGradientAnimation = (
 		},
 		'-=50%'
 	);
+
+	if (stopsWithoutColor.length > 0) {
+		tl.call(() => {
+			stopsWithoutColor.forEach((stop) => stop.removeAttribute('stop-color'));
+		});
+	}
 };
 
 const fadeOutColor = theme.colors.gray[100];
 const nodeFadeOutOpacity = 0.2;
-let flowTimeline: GSAPTimeline;
+let flowTimeline: GSAPTimeline | undefined;
 
 export const completeCurrentAnimation = () => {
 	if (flowTimeline) {
@@ -69,22 +97,54 @@ export const completeCurrentAnimation = () => {
 	}
 };
 
-export const showFlowAnimation = async (tokenLength: number, isNextTokenOnly = true) => {
+export const showFlowAnimation = async (
+	tokenLength: number,
+	isNextTokenOnly = true,
+	signal?: AbortSignal
+) => {
+	if (signal?.aborted) return;
 	completeCurrentAnimation();
 
 	let isFirstBlock = get(blockIdx) === 0;
 	let isLastBlock = get(blockIdx) === get(modelMeta)?.layer_num - 1;
 
-	return new Promise((resolve) => {
-		const tl = gsap.timeline({
-			onStart: () => {
-				isOnAnimation.set(true);
-			},
-			onComplete: () => {
+	return new Promise<void>((resolve) => {
+		let settled = false;
+		const tl = gsap.timeline();
+		flowTimeline = tl;
+
+		const settle = () => {
+			if (settled) return;
+			settled = true;
+			signal?.removeEventListener('abort', handleAbort);
+			resolve();
+		};
+		const handleAbort = () => {
+			tl.kill();
+			if (flowTimeline === tl) {
+				flowTimeline = undefined;
 				isOnAnimation.set(false);
-				resolve();
 			}
+			settle();
+		};
+
+		tl.eventCallback('onStart', () => {
+			if (flowTimeline === tl) isOnAnimation.set(true);
 		});
+		tl.eventCallback('onComplete', () => {
+			if (flowTimeline === tl) {
+				flowTimeline = undefined;
+				isOnAnimation.set(false);
+			}
+			settle();
+		});
+
+		signal?.addEventListener('abort', handleAbort, { once: true });
+		if (signal?.aborted) {
+			handleAbort();
+			return;
+		}
+
 		const duration = 0.02;
 
 		// ============================
@@ -273,35 +333,39 @@ export const showFlowAnimation = async (tokenLength: number, isNextTokenOnly = t
 		// draw attention matrix mul path
 		// add attention values
 		// ============================
-		const keyPaths = document.querySelectorAll('.sankey-top g.attention path.key-to-attention');
-		const queryPaths = document.querySelectorAll('.sankey-top g.attention path.query-to-attention');
-		const attentionMatrix = document.querySelector('.attention .attention-result');
+		const keyPaths = document.querySelectorAll<SVGPathElement>(
+			'.sankey-top g.attention path.key-to-attention'
+		);
+		const queryPaths = document.querySelectorAll<SVGPathElement>(
+			'.sankey-top g.attention path.query-to-attention'
+		);
+		const attentionMatrix = document.querySelector<HTMLElement>('.attention .attention-result');
 
 		if (isNextTokenOnly) {
 			const QKDuration = 0.7;
 			const stagger = Number((QKDuration / tokenLength).toFixed(2));
 
 			[...keyPaths, ...queryPaths].forEach((path) => {
-				path.style.strokeDasharray = 0;
-				path.style.strokeDashoffset = 0;
+				path.style.strokeDasharray = '0';
+				path.style.strokeDashoffset = '0';
 			});
 
-			const lastKeyPath = keyPaths[keyPaths.length - 1];
-			const lastQueryPath = queryPaths[queryPaths.length - 1];
+			const lastKeyPath = keyPaths.item(keyPaths.length - 1);
+			const lastQueryPath = queryPaths.item(queryPaths.length - 1);
 
-			[lastKeyPath, lastQueryPath].forEach((path) => {
-				const length = path.getTotalLength();
-				path.style.strokeDasharray = length;
-				path.style.strokeDashoffset = length;
-			});
+			if (lastKeyPath && lastQueryPath) {
+				[lastKeyPath, lastQueryPath].forEach((path) => {
+					const length = path.getTotalLength();
+					path.style.strokeDasharray = String(length);
+					path.style.strokeDashoffset = String(length);
+				});
 
-			tl.to(lastKeyPath, {
-				strokeDashoffset: 0,
-				stagger,
-				duration: QKDuration,
-				ease: 'power2.out'
-			})
-				.to(
+				tl.to(lastKeyPath, {
+					strokeDashoffset: 0,
+					stagger,
+					duration: QKDuration,
+					ease: 'power2.out'
+				}).to(
 					lastQueryPath,
 					{
 						strokeDashoffset: 0,
@@ -311,29 +375,33 @@ export const showFlowAnimation = async (tokenLength: number, isNextTokenOnly = t
 						ease: 'power2.out'
 					},
 					'<'
-				)
-				.from(
-					attentionMatrix.querySelectorAll('svg circle.last'),
-					{
-						scale: 0,
-						transformOrigin: '50% 50%',
-						opacity: 0,
-						delay: QKDuration / tokenLength,
-						stagger: Number((QKDuration / Math.pow(tokenLength, 2)).toFixed(2)),
-						ease: 'power2.out',
-						// ease: 'back.out(1.7)',
-						duration: QKDuration
-					},
-					'<'
 				);
+
+				if (attentionMatrix) {
+					tl.from(
+						attentionMatrix.querySelectorAll<SVGCircleElement>('svg circle.last'),
+						{
+							scale: 0,
+							transformOrigin: '50% 50%',
+							opacity: 0,
+							delay: QKDuration / tokenLength,
+							stagger: Number((QKDuration / Math.pow(tokenLength, 2)).toFixed(2)),
+							ease: 'power2.out',
+							// ease: 'back.out(1.7)',
+							duration: QKDuration
+						},
+						'<'
+					);
+				}
+			}
 		} else {
 			const QKDuration = 0.4;
 			const stagger = Number((QKDuration / tokenLength).toFixed(2));
 
 			[...keyPaths, ...queryPaths].forEach((path) => {
 				const length = path.getTotalLength();
-				path.style.strokeDasharray = length;
-				path.style.strokeDashoffset = length;
+				path.style.strokeDasharray = String(length);
+				path.style.strokeDashoffset = String(length);
 			});
 
 			tl.to(keyPaths, {
@@ -341,20 +409,21 @@ export const showFlowAnimation = async (tokenLength: number, isNextTokenOnly = t
 				stagger,
 				duration: QKDuration,
 				ease: 'power2.out'
-			})
-				.to(
-					queryPaths,
-					{
-						strokeDashoffset: 0,
-						stagger,
-						duration: QKDuration,
-						// ease: 'back.out(1.7)'
-						ease: 'power2.out'
-					},
-					'<'
-				)
-				.from(
-					attentionMatrix.querySelectorAll('svg circle'),
+			}).to(
+				queryPaths,
+				{
+					strokeDashoffset: 0,
+					stagger,
+					duration: QKDuration,
+					// ease: 'back.out(1.7)'
+					ease: 'power2.out'
+				},
+				'<'
+			);
+
+			if (attentionMatrix) {
+				tl.from(
+					attentionMatrix.querySelectorAll<SVGCircleElement>('svg circle'),
 					{
 						scale: 0,
 						transformOrigin: '50% 50%',
@@ -367,6 +436,7 @@ export const showFlowAnimation = async (tokenLength: number, isNextTokenOnly = t
 					},
 					'<'
 				);
+			}
 		}
 
 		// ============================
@@ -584,16 +654,14 @@ export const showFlowAnimation = async (tokenLength: number, isNextTokenOnly = t
 		// sampling animation
 		// ============================
 		// showSamplingAnimation();
-
-		flowTimeline = tl;
 	});
 };
 
 export const drawResidualLine = (id?: string) => {
 	let residualAnimation: GSAPTween | undefined;
 
-	const connectLine = (paths: any) => {
-		residualAnimation = gsap.to(paths.nodes(), {
+	const connectLine = (paths: SVGLineElement[]) => {
+		residualAnimation = gsap.to(paths, {
 			strokeDashoffset: -50,
 			duration: 1,
 			repeat: -1,
@@ -602,36 +670,27 @@ export const drawResidualLine = (id?: string) => {
 	};
 
 	const drawLine = () => {
-		let startGroup, endGroup, connector;
+		const startSelector = id ? `#${id}-start` : '[data-click="residual-start"]';
+		const endSelector = id ? `#${id}-end` : '[data-click="residual-end"]';
+		const connectorSelector = id ? `.residual-connector.${id}` : '.residual-connector';
+		const connector = d3.selectAll<SVGLineElement, unknown>(connectorSelector);
+		const startGroup = document.querySelectorAll(startSelector);
+		const endGroup = document.querySelectorAll(endSelector);
 
-		if (!id) {
-			startGroup = document.querySelectorAll('[data-click="residual-start"]');
-			endGroup = document.querySelectorAll('[data-click="residual-end"]');
-			connector = d3.selectAll(`.residual-connector`);
-		} else {
-			startGroup = document.querySelectorAll(`#${id}-start`);
-			endGroup = document.querySelectorAll(`#${id}-end`);
-			connector = d3.selectAll(`.residual-connector.${id}`);
-		}
 		connector.style('opacity', 1);
-		connectLine(connector);
+		connectLine(connector.nodes());
 
 		startGroup.forEach((el) => el.classList.add('active'));
 		endGroup.forEach((el) => el.classList.add('active'));
 	};
 
 	const removeLine = () => {
-		let startGroup, endGroup, connector;
-
-		if (!id) {
-			startGroup = document.querySelectorAll('[data-click="residual-start"]');
-			endGroup = document.querySelectorAll('[data-click="residual-end"]');
-			connector = d3.selectAll(`.residual-connector`);
-		} else {
-			startGroup = document.querySelectorAll(`#${id}-start`);
-			endGroup = document.querySelectorAll(`#${id}-end`);
-			connector = d3.selectAll(`.residual-connector.${id}`);
-		}
+		const startSelector = id ? `#${id}-start` : '[data-click="residual-start"]';
+		const endSelector = id ? `#${id}-end` : '[data-click="residual-end"]';
+		const connectorSelector = id ? `.residual-connector.${id}` : '.residual-connector';
+		const connector = d3.selectAll<SVGLineElement, unknown>(connectorSelector);
+		const startGroup = document.querySelectorAll(startSelector);
+		const endGroup = document.querySelectorAll(endSelector);
 
 		connector.style('opacity', 0);
 		if (residualAnimation) {

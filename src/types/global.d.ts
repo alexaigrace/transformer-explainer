@@ -42,15 +42,16 @@ type Probability = {
 	scaledLogit: number;
 	expLogit: number;
 	probability: number;
-	topKLogit?: number;
+	topKLogit?: number | null;
 	topPProbability?: number;
 	cumulativeProbability?: number;
 	cutoffIndex?: number;
 };
 type Probabilities = Probability[];
+type AttentionMatrixData = (number | null)[][];
 type ModelData = {
 	logits: number[];
-	outputs: Record<string, { data: number[][]; dims: number[]; size: number }>;
+	outputs: Record<string, { data: AttentionMatrixData; dims?: number[]; size?: number }>;
 	probabilities: Probabilities;
 	sampled: Probability;
 };

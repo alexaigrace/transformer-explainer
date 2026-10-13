@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PopoverProps } from 'flowbite-svelte/Popover.svelte';
 	import CommonPopover from './CommonPopover.svelte';
+	import { t } from '~/i18n';
 
 	export let offset: PopoverProps['offset'] = undefined;
 	export let className: PopoverProps['class'] = undefined;
@@ -11,8 +12,8 @@
 </script>
 
 <CommonPopover
-	className="residual-popover"
-	title="Residual Connection"
+	className={className ? `residual-popover ${className}` : 'residual-popover'}
+	title={$t('popover.residual.title')}
 	{offset}
 	{triggeredBy}
 	{trigger}
@@ -21,7 +22,7 @@
 	goTo="article-residual"
 >
 	<div class="residual-content">
-		Adds layer input to output to help preserve information.
+		{$t('popover.residual.body')}
 	</div></CommonPopover
 >
 

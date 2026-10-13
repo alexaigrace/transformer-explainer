@@ -14,18 +14,24 @@
 	import Matrix from '~/components/common/Matrix.svelte';
 	import { gsap } from '~/utils/gsap';
 	import { maskArray } from '~/utils/array';
-	import { getContext, onMount } from 'svelte';
+	import { getContext, onDestroy, onMount } from 'svelte';
 	import resolveConfig from 'tailwindcss/resolveConfig';
 	import tailwindConfig from '../../tailwind.config';
 	import * as d3 from 'd3';
 	import Katex from '~/utils/Katex.svelte';
-	import { Tooltip } from 'flowbite-svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
 	import { ATTENTION_OUT } from '~/constants/opacity';
 	import { ga } from '~/utils/event';
-	import { ZoomInOutline } from 'flowbite-svelte-icons';
+	import ZoomInOutline from 'flowbite-svelte-icons/ZoomInOutline.svelte';
 	import TextbookTooltip from '~/components/common/TextbookTooltip.svelte';
+	import { t } from '~/i18n';
 	import { textPages } from '~/utils/textbookPages';
 	import { highlightAttentionPath, removeAttentionPathHighlight } from '~/utils/textbook';
+	import type {
+		MatrixCellHandler,
+		MatrixColorScale,
+		MatrixTooltipHandler
+	} from '~/utils/matrixTypes';
 
 	const { theme } = resolveConfig(tailwindConfig);
 
@@ -50,16 +56,16 @@
 		Math.max((1 / $tokens.length) * rootRem * 6 * factor, minCellSize)
 	);
 
-	let attentionQK: HTMLDivElement;
-	let attentionMask: HTMLDivElement;
-	let attentionSoftmax: HTMLDivElement;
-	let attentionResult: HTMLDivElement;
+	let attentionQK: HTMLDivElement | undefined;
+	let attentionMask: HTMLDivElement | undefined;
+	let attentionSoftmax: HTMLDivElement | undefined;
+	let attentionResult: HTMLDivElement | undefined;
 
 	let attentionMatrixWidth = 0;
 
 	let isAttentionExpanded = false;
 
-	const blockId = getContext('block-id');
+	const blockId = getContext<string>('block-id');
 
 	// event handling
 
@@ -72,50 +78,95 @@
 		expandAttention();
 	}
 
-	const onClickAttention = (e) => {
+	const onClickAttention = (e: MouseEvent | KeyboardEvent) => {
 		e.stopPropagation();
 		e.preventDefault();
-		textPages.find((page) => page.id === 'masked-self-attention')?.complete();
+		textPages.find((page) => page.id === 'masked-self-attention')?.complete?.();
 
 		if (!isAttentionExpanded) {
 			expandedBlock.set({ id: blockId });
 		}
 	};
 
-	let expandableEl: HTMLDivElement;
+	let expandableEl: HTMLDivElement | undefined;
 
-	function handleOutsideClick(e) {
-		if (isAttentionExpanded && !expandableEl.contains(e.target)) {
+	function handleOutsideClick(e: MouseEvent) {
+		if (
+			isAttentionExpanded &&
+			expandableEl &&
+			e.target instanceof Node &&
+			!expandableEl.contains(e.target)
+		) {
 			expandedBlock.set({ id: null });
 		}
 	}
 	onMount(() => {
-		document.querySelector('.main-section').addEventListener('click', handleOutsideClick);
+		const mainSection = document.querySelector<HTMLElement>('.main-section');
+		if (!mainSection) return;
+
+		mainSection.addEventListener('click', handleOutsideClick);
 		return () => {
-			document.querySelector('.main-section').removeEventListener('click', handleOutsideClick);
+			mainSection.removeEventListener('click', handleOutsideClick);
 		};
 	});
 
 	// animation
 	let expandTl = gsap.timeline();
 	let collapseTl = gsap.timeline();
+	let isDestroyed = false;
+	let isOwnedAnimationRunning = false;
 
 	// google analytics
-	let startTime = null;
+	let startTime: number | null = null;
+
+	const getConnectedAttentionElements = () => {
+		if (
+			isDestroyed ||
+			!expandableEl?.isConnected ||
+			!attentionQK?.isConnected ||
+			!attentionMask?.isConnected ||
+			!attentionSoftmax?.isConnected ||
+			!attentionResult?.isConnected
+		) {
+			return undefined;
+		}
+
+		return { attentionQK, attentionMask, attentionSoftmax, attentionResult };
+	};
+
+	onDestroy(() => {
+		isDestroyed = true;
+		expandTl.kill();
+		collapseTl.kill();
+		if (isOwnedAnimationRunning) {
+			isOwnedAnimationRunning = false;
+			isExpandOrCollapseRunning.set(false);
+		}
+	});
 
 	const expandAttention = () => {
+		const elements = getConnectedAttentionElements();
+		if (!elements) return;
+		const { attentionQK, attentionMask, attentionSoftmax, attentionResult } = elements;
 		highlightAttentionPath();
 
 		isAttentionExpanded = true;
+		isOwnedAnimationRunning = true;
 		isExpandOrCollapseRunning.set(true);
 		collapseTl.progress(1);
 
-		const keyPaths = document.querySelectorAll('div.sankey g.attention path.key-to-attention');
-		const queryPaths = document.querySelectorAll('div.sankey g.attention path.query-to-attention');
-		const outPaths = document.querySelectorAll('div.sankey g.attention path.to-attention-out');
+		const keyPaths = document.querySelectorAll<SVGPathElement>(
+			'div.sankey g.attention path.key-to-attention'
+		);
+		const queryPaths = document.querySelectorAll<SVGPathElement>(
+			'div.sankey g.attention path.query-to-attention'
+		);
+		const outPaths = document.querySelectorAll<SVGPathElement>(
+			'div.sankey g.attention path.to-attention-out'
+		);
 
 		[...keyPaths, ...queryPaths].forEach((path) => {
-			const length = path.getTotalLength();
+			const length = String(path.getTotalLength());
 			path.style.strokeDasharray = length;
 			path.style.strokeDashoffset = length;
 		});
@@ -231,6 +282,8 @@
 		expandTl.to(outPaths, {
 			opacity: ATTENTION_OUT,
 			onComplete: () => {
+				if (isDestroyed) return;
+				isOwnedAnimationRunning = false;
 				isExpandOrCollapseRunning.set(false);
 			}
 		});
@@ -245,9 +298,12 @@
 	};
 
 	const collapseAttention = () => {
+		const elements = getConnectedAttentionElements();
+		if (!elements) return;
+		const { attentionQK, attentionMask, attentionSoftmax, attentionResult } = elements;
 		removeAttentionPathHighlight();
-		let endTime = performance.now();
-		let visibleDuration = endTime - startTime;
+		const endTime = performance.now();
+		const visibleDuration = startTime === null ? 0 : endTime - startTime;
 
 		window.dataLayer?.push({
 			event: 'visibility-hide',
@@ -258,6 +314,7 @@
 		});
 
 		isAttentionExpanded = false;
+		isOwnedAnimationRunning = true;
 		isExpandOrCollapseRunning.set(true);
 		expandTl.progress(1);
 		collapseTl.to([attentionQK, attentionMask, attentionSoftmax], {
@@ -274,6 +331,8 @@
 				display: 'flex',
 				duration: 0.5,
 				onComplete: () => {
+					if (isDestroyed) return;
+					isOwnedAnimationRunning = false;
 					isExpandOrCollapseRunning.set(false);
 				}
 			},
@@ -282,38 +341,41 @@
 	};
 
 	// color scale
-	$: qkColorScaleDomain = d3.extent(queryKey.flat());
-	$: qkColorScale = (d, i) => {
+	const isFiniteCell = (value: number | null): value is number =>
+		typeof value === 'number' && Number.isFinite(value);
+	let qkColorScale: MatrixColorScale;
+	$: qkColorScaleDomain = d3.extent(queryKey.flat().filter(isFiniteCell));
+	$: qkColorScale = (d, _i) => {
 		return d3
-			.scaleLinear()
-			.domain(qkColorScaleDomain)
-			.range(['white', theme.colors['purple'][700]])(d);
+			.scaleLinear<string>()
+			.domain([qkColorScaleDomain[0] ?? 0, qkColorScaleDomain[1] ?? 1])
+			.range(['white', theme.colors.purple[700]])(d);
 	};
-	const maskedColorScale = (d, i) => {
-		return d3.scaleLinear().domain([-3, 3]).range(['white', theme.colors['purple'][700]])(d);
+	const maskedColorScale: MatrixColorScale = (d, _i) => {
+		return d3.scaleLinear<string>().domain([-3, 3]).range(['white', theme.colors.purple[700]])(d);
 	};
-	const softmaxColorScale = (d, i) => {
+	const softmaxColorScale: MatrixColorScale = (d, _i) => {
 		return d3.interpolate('white', theme.colors['purple'][700])(d);
 	};
 
-	const onMouseOverCell = (e, d, el) => {
-		const rowIdx = d.rowIndex;
-		const colIdx = d.colIndex;
+	const onMouseOverCell: MatrixCellHandler = (_event, data, element) => {
+		const rowIdx = data.rowIndex;
+		const colIdx = data.colIndex;
 		hoveredMatrixCell.set({ row: rowIdx, col: colIdx });
-		if (Number.isFinite(d.cell)) {
-			d3.select(el).attr('stroke', theme.colors.gray[400]);
+		if (element && isFiniteCell(data.cell)) {
+			d3.select(element).attr('stroke', theme.colors.gray[400]);
 		}
 	};
-	const onMouseOutCell = (e, d, el) => {
+	const onMouseOutCell: MatrixCellHandler = (_event, data, element) => {
 		hoveredMatrixCell.set({ row: null, col: null });
-		if (Number.isFinite(d.cell)) {
-			d3.select(el).attr('stroke', !Number.isFinite(d.cell) ? 'none' : theme.colors.gray[200]);
+		if (element && isFiniteCell(data.cell)) {
+			d3.select(element).attr('stroke', theme.colors.gray[200]);
 		}
 	};
 
-	const showTooltip = (e, d) => {
-		if (!Number.isFinite(d)) return;
-		return d.toFixed(2);
+	const showTooltip: MatrixTooltipHandler = (_event, value) => {
+		if (!isFiniteCell(value)) return;
+		return value.toFixed(2);
 	};
 </script>
 
@@ -353,7 +415,7 @@
 				{showTooltip}
 			/>
 			<TextbookTooltip id="masked-self-attention">
-				<div class="matrix-label">Dot product</div>
+				<div class="matrix-label">{$t('viz.dotProduct')}</div>
 			</TextbookTooltip>
 
 			<Tooltip class="popover tooltip">
@@ -419,7 +481,7 @@
 				/>
 			</div>
 			<TextbookTooltip id="masked-self-attention">
-				<div class="matrix-label">Scaling · Mask</div>
+				<div class="matrix-label">{$t('viz.scalingMask')}</div>
 			</TextbookTooltip>
 
 			<Tooltip class="popover tooltip">
@@ -488,13 +550,13 @@
 			</div>
 
 			<TextbookTooltip id="masked-self-attention">
-				<div class="matrix-label">Softmax</div>
+				<div class="matrix-label">{$t('viz.softmax')}</div>
 			</TextbookTooltip>
 			<Tooltip class="popover tooltip">
 				<Katex math={'\\text{softmax}(\\frac{QK^T}{\\sqrt{d_k}} + M)'}></Katex>
 			</Tooltip>
 			<div class="color-scale">
-				<span class="val">-1.0</span>
+				<span class="val">0.0</span>
 				<div class="bar"></div>
 				<span class="val">1.0</span>
 			</div>
@@ -523,7 +585,8 @@
 			/>
 
 			<div class="matrix-label flex items-center gap-1">
-				Attention <ZoomInOutline></ZoomInOutline>
+				{$t('viz.attention')}
+				<ZoomInOutline></ZoomInOutline>
 			</div>
 		</div>
 	</div>

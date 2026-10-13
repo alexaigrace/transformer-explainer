@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { tokens, modelMeta, isBoundingBoxActive, expandedBlock, blockIdx } from '~/store';
 	import classNames from 'classnames';
-	import { Tooltip } from 'flowbite-svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
 	import VectorCanvas from './common/VectorCanvas.svelte';
 	import TextbookTooltip from './common/TextbookTooltip.svelte';
+	import { locale, t } from '~/i18n';
 
 	export let className: string | undefined = undefined;
 </script>
@@ -29,8 +30,14 @@
 			>
 				<div class="text" class:highlight={$isBoundingBoxActive}>
 					<TextbookTooltip id="blocks">
-						<span class="strong">{$modelMeta.layer_num - $blockIdx - 1}</span> more identical<br
-						/><span class="strong">Transformer<br />Blocks</span>
+						{#if $locale === 'zh'}
+							<span class="strong">{$modelMeta.layer_num - $blockIdx - 1}</span> 个相同的<br /><span
+								class="strong">Transformer 块</span
+							>
+						{:else}
+							<span class="strong">{$modelMeta.layer_num - $blockIdx - 1}</span> more identical<br
+							/><span class="strong">Transformer<br />Blocks</span>
+						{/if}
 					</TextbookTooltip>
 				</div>
 
@@ -59,7 +66,7 @@
 				</div>
 			{/each}
 			<Tooltip class="popover" triggeredBy={'.transformer-blocks .vector'} placement="right"
-				>vector({$modelMeta.dimension})</Tooltip
+				>{$t('viz.vectorSize', { n: $modelMeta.dimension })}</Tooltip
 			>
 		</div>
 		<div class="second-column">
@@ -118,9 +125,6 @@
 					left: 2rem;
 				}
 			}
-		}
-		.column.initial .cell {
-			gap: 0.6rem;
 		}
 	}
 

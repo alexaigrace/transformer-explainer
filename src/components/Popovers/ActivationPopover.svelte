@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PopoverProps } from 'flowbite-svelte/Popover.svelte';
 	import CommonPopover from './CommonPopover.svelte';
+	import { t } from '~/i18n';
 
 	export let offset: PopoverProps['offset'] = undefined;
 	export let className: PopoverProps['class'] = undefined;
@@ -10,8 +11,8 @@
 </script>
 
 <CommonPopover
-	className="activation-popover"
-	title="GELU Activation"
+	className={className ? `activation-popover ${className}` : 'activation-popover'}
+	title={$t('popover.gelu.title')}
 	{offset}
 	{triggeredBy}
 	{trigger}
@@ -19,7 +20,7 @@
 	goTo="article-activation"
 >
 	<div class="activation-content">
-		Applies non-linear transformation to linearly transformed output to learn complex patterns.
+		{$t('popover.gelu.body')}
 	</div></CommonPopover
 >
 

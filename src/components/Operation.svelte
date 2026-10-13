@@ -1,8 +1,9 @@
 <script lang="ts">
 	import classNames from 'classnames';
-	import { Popover } from 'flowbite-svelte';
+	import Popover from 'flowbite-svelte/Popover.svelte';
 	import { vectorHeight, expandedBlock } from '~/store';
 	import { onMount } from 'svelte';
+	import { t } from '~/i18n';
 
 	export let id: string | undefined = undefined;
 	export let className: string | undefined = undefined;
@@ -12,11 +13,11 @@
 	export let active: boolean = false;
 
 	let width = 50;
-	let textElement: SVGTextElement;
+	let textElement: SVGTextElement | undefined;
 	let textBBox: DOMRect;
 
 	onMount(() => {
-		if (textElement) {
+		if (textElement?.isConnected) {
 			textBBox = textElement.getBBox();
 		}
 	});
@@ -36,7 +37,7 @@
 				<!-- <svg>
 					<path d="M0,0 Q0,-16 30,-16"></path>
 				</svg> -->
-				<div class="guide-text gelu-text">GeLU</div>
+				<div class="guide-text gelu-text">{$t('viz.gelu')}</div>
 			</div>
 		{/if}
 	</div>
@@ -55,7 +56,7 @@
 					/> -->
 					<path d="M0,50 Q0,0 24,0"></path>
 				</svg>
-				<div class="guide-text dropout-text">Dropout</div>
+				<div class="guide-text dropout-text">{$t('viz.dropout')}</div>
 			</div>
 		{/if}
 	</div>
@@ -81,7 +82,7 @@
 					/> -->
 					<path d="M0,50 Q0,0 24,0"></path>
 				</svg>
-				<div class="guide-text ln-text">Layer Normalization</div>
+				<div class="guide-text ln-text">{$t('viz.layerNorm')}</div>
 			</div>
 		{/if}
 	</div>
@@ -89,7 +90,7 @@
 	<div class={classNames(`residual residual-start cell`, className)} class:active>
 		<div class="cursor"></div>
 		{#if head}
-			<div class="guide-text residual-text">Residual</div>
+			<div class="guide-text residual-text">{$t('viz.residual')}</div>
 		{/if}
 		<svg class="main">
 			{#if head}<path {id} class="head" d="M0,0 Q0,-16 30,-16"></path>{/if}

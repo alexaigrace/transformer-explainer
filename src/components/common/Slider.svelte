@@ -7,11 +7,11 @@
 	export let max: number;
 	export let step: number;
 	export let value: number;
-	export let valueText: string;
+	export let valueText: string | number;
 	export let onClick: (() => void) | undefined = undefined;
 
-	let startValue = null;
-	let endValue = null;
+	let startValue: string | number | null = null;
+	let endValue: string | number | null = null;
 
 	function handleMouseDown() {
 		startValue = valueText;

@@ -1,15 +1,21 @@
 <script lang="ts">
-	import { Popover } from 'flowbite-svelte';
+	import Popover from 'flowbite-svelte/Popover.svelte';
+	import type { PopoverProps } from 'flowbite-svelte/Popover.svelte';
 	import { userId } from '~/store';
 	import { onClickReadMore } from '~/utils/event';
+	import { t } from '~/i18n';
 
 	export let id: string;
-	export let placement: string = 'bottom';
+	export let placement: PopoverProps['placement'] = 'bottom';
 	export let goTo: string | undefined = undefined;
 	export let textbook: string | undefined = undefined;
 
-	let startTime;
-	const onShow = (e) => {
+	let triggerElement: HTMLButtonElement;
+	let contentElement: HTMLDivElement;
+	let helpOpen = false;
+
+	let startTime: number | undefined;
+	const onShow = (e: CustomEvent<boolean>) => {
 		startTime = e.timeStamp;
 		window.dataLayer?.push({
 			event: 'visibility-show',
@@ -18,7 +24,7 @@
 			user_id: $userId
 		});
 	};
-	const onHide = (e) => {
+	const onHide = (e: CustomEvent<boolean>) => {
 		window.dataLayer?.push({
 			event: 'visibility-hide',
 			visible_name: `help-popover-${id}`,
@@ -27,9 +33,41 @@
 			user_id: $userId
 		});
 	};
+
+	function focusHelpContent() {
+		const focusTarget = contentElement?.querySelector<HTMLElement>(
+			'a[href], button:not(:disabled), [tabindex]:not([tabindex="-1"])'
+		);
+		(focusTarget ?? contentElement)?.focus({ preventScroll: true });
+	}
+
+	function handleEscape(event: KeyboardEvent) {
+		if (event.key !== 'Escape' || !helpOpen) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+		helpOpen = false;
+		triggerElement?.focus({ preventScroll: true });
+	}
+
+	function listenForEscape(node: HTMLElement) {
+		node.addEventListener('keydown', handleEscape);
+		return { destroy: () => node.removeEventListener('keydown', handleEscape) };
+	}
 </script>
 
-<div {id} class="help" data-click={`help-icon`}>
+<button
+	{id}
+	bind:this={triggerElement}
+	type="button"
+	class="help"
+	aria-label={$t('popover.help')}
+	aria-haspopup="dialog"
+	aria-expanded={helpOpen}
+	aria-controls={`${id}-popover`}
+	on:keydown={handleEscape}
+	data-click="help-icon"
+>
 	<svg
 		class="h-4 w-4 text-gray-300"
 		xmlns="http://www.w3.org/2000/svg"
@@ -39,20 +77,26 @@
 			d="M478-240q21 0 35.5-14.5T528-290q0-21-14.5-35.5T478-340q-21 0-35.5 14.5T428-290q0 21 14.5 35.5T478-240Zm-36-154h74q0-33 7.5-52t42.5-52q26-26 41-49.5t15-56.5q0-56-41-86t-97-30q-57 0-92.5 30T342-618l66 26q5-18 22.5-39t53.5-21q32 0 48 17.5t16 38.5q0 20-12 37.5T506-526q-44 39-54 59t-10 73Zm38 314q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Z"
 		/></svg
 	>
-</div>
+</button>
 <Popover
+	id={`${id}-popover`}
 	triggeredBy={`#${id}`}
+	trigger="click"
+	bind:open={helpOpen}
+	role="dialog"
+	aria-label={$t('popover.help')}
 	{placement}
 	class="help popover"
 	data-click={`help-popover-${id}`}
 	on:show={(e) => {
 		if (e.detail) {
 			onShow(e);
+			window.requestAnimationFrame(focusHelpContent);
 		} else {
 			onHide(e);
 		}
 	}}
-	><div class="help-content">
+	><div class="help-content" bind:this={contentElement} tabindex="-1" use:listenForEscape>
 		<slot />
 		{#if textbook}
 			<div class="textbook-link">
@@ -62,18 +106,19 @@
 					data-click={`textbook-link-${id}`}
 					class="text-blue-600 hover:underline"
 				>
-					Open Textbook
+					{$t('popover.openTextbook')}
 				</a>
 			</div>
 		{/if}
 		{#if goTo}
-			<div
+			<button
+				type="button"
 				data-click={`read-more-btn-${id}`}
 				class="more-btn mt-1 text-blue-600 hover:underline"
 				on:click={(e) => onClickReadMore(e, goTo, { value: id })}
 			>
-				Read more
-			</div>
+				{$t('popover.readMore')}
+			</button>
 		{/if}
 	</div></Popover
 >
@@ -86,7 +131,18 @@
 		font-weight: 400;
 		font-size: 0.8rem;
 	}
+	.help {
+		cursor: pointer;
+		border: 0;
+		padding: 0;
+		background: transparent;
+		color: inherit;
+	}
 	.more-btn {
 		cursor: pointer;
+		border: 0;
+		padding: 0;
+		background: transparent;
+		font: inherit;
 	}
 </style>

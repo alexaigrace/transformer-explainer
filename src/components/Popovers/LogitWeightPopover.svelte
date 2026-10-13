@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { t } from '~/i18n';
 	import { modelMeta, tokens, rootRem } from '~/store';
 	import * as d3 from 'd3';
 	import { gsap } from '~/utils/gsap';
 	import Matrix from '~/components/common/Matrix.svelte';
+	import type { MatrixCellHandler, MatrixColorScale, MatrixSvgHandler } from '~/utils/matrixTypes';
 	import { onDestroy, onMount } from 'svelte';
 	import resolveConfig from 'tailwindcss/resolveConfig';
 	import tailwindConfig from '../../../tailwind.config';
@@ -51,43 +53,48 @@
 		);
 
 	// color scale
-	const embeddingColorScale = (d, i) => {
+	const embeddingColorScale: MatrixColorScale = (d, i) => {
 		return d3.interpolate(theme.colors['blue'][100], theme.colors['blue'][400])(d);
 	};
-	const weightColorScale = (d, i) => {
+	const weightColorScale: MatrixColorScale = (d, i) => {
 		return d3.interpolate(theme.colors['gray'][100], theme.colors['gray'][400])(d);
 	};
-	const logitColorScale = (d, i) => {
+	const logitColorScale: MatrixColorScale = (d, i) => {
 		return d3.interpolate(theme.colors['blue'][100], theme.colors['gray'][400])(d);
 	};
 
 	// animation
 	let isAnimationActive = false;
 	let progress = 0;
-	let timeline;
+	let timeline: GSAPTimeline | undefined;
+	let animationStartTimeout: ReturnType<typeof setTimeout> | undefined;
 
 	onMount(() => {
-		timeline = gsap.timeline();
+		const activeTimeline = gsap.timeline();
+		timeline = activeTimeline;
 
-		timeline.eventCallback('onUpdate', () => {
-			progress = timeline.progress();
+		activeTimeline.eventCallback('onUpdate', () => {
+			progress = activeTimeline.progress();
 			if (progress === 1) isAnimationActive = false;
 		});
 
-		setTimeout(() => {
+		animationStartTimeout = setTimeout(() => {
+			animationStartTimeout = undefined;
 			isAnimationActive = true;
 			draw();
 		}, 300);
 	});
 
 	onDestroy(() => {
-		if (timeline) {
-			timeline.kill();
-			timeline = null;
-		}
+		if (animationStartTimeout !== undefined) clearTimeout(animationStartTimeout);
+		timeline?.kill();
+		timeline = undefined;
 	});
 
 	const draw = () => {
+		const activeTimeline = timeline;
+		if (!activeTimeline) return;
+
 		const embeddingRows = d3.selectAll('.weight-popover-content .hidden-state g.g-row').nodes();
 		const weightCols = d3.selectAll('.weight-popover-content .lm-head-weights g.g-col').nodes();
 		const weightBiasCells = d3.selectAll('.weight-popover-content .lm-head-bias rect').nodes();
@@ -101,9 +108,9 @@
 		const highlight = '#94a3b8';
 
 		// first row detail animation
-		timeline.set(weightBiasCells, { opacity: 0.1 });
-		timeline.set('.formula .first-row', { opacity: 1 });
-		timeline.set('.formula .total', { opacity: 0 });
+		activeTimeline.set(weightBiasCells, { opacity: 0.1 });
+		activeTimeline.set('.formula .first-row', { opacity: 1 });
+		activeTimeline.set('.formula .total', { opacity: 0 });
 
 		const firstOutputRowRects = d3.select(outRows[0]).selectAll('rect').nodes();
 		const firstEmbeddingRowRects = d3.select(embeddingRows[0]).selectAll('rect').nodes();
@@ -111,11 +118,11 @@
 		firstOutputRowRects.forEach((outputRect, outCellIdx) => {
 			const isFirstOutCell = outCellIdx === 0;
 			const firstWeightColRects = d3.select(weightCols[outCellIdx]).selectAll('rect').nodes();
-			timeline.set(firstEmbeddingRowRects, { opacity: 0.1 });
+			activeTimeline.set(firstEmbeddingRowRects, { opacity: 0.1 });
 
 			firstEmbeddingRowRects.forEach((embeddingRect, i) => {
 				//embedding
-				timeline
+				activeTimeline
 					.fromTo(
 						embeddingRect,
 						{ opacity: 0.1, strokeWidth: 0 },
@@ -136,7 +143,7 @@
 					);
 
 				//weights
-				timeline
+				activeTimeline
 					.fromTo(
 						firstWeightColRects[i],
 						{ opacity: 0.1, strokeWidth: 0 },
@@ -160,7 +167,7 @@
 
 			//symbol
 			if (isFirstOutCell) {
-				timeline.from(
+				activeTimeline.from(
 					[
 						mulSymbol,
 						equalSymbol,
@@ -176,7 +183,7 @@
 					'<50%'
 				);
 
-				// timeline.from(
+				// activeTimeline.from(
 				// 	[plusSymbol, equalSymbol, '.formula .first-row .part2'],
 				// 	{
 				// 		duration: 0.5,
@@ -186,7 +193,7 @@
 				// );
 			}
 			//bias
-			timeline
+			activeTimeline
 				.fromTo(
 					weightBiasCells[outCellIdx],
 
@@ -210,7 +217,7 @@
 				);
 
 			//out
-			timeline
+			activeTimeline
 				.fromTo(
 					outputRect,
 					{ opacity: 0, strokeWidth: 0 },
@@ -233,8 +240,8 @@
 				);
 
 			if (isFirstOutCell) {
-				timeline.to('.formula .first-row', { opacity: 0, duration: 0.3 }, '>+1');
-				timeline.to('.formula .total', { opacity: 1, duration: 0.3 }, `<`);
+				activeTimeline.to('.formula .first-row', { opacity: 0, duration: 0.3 }, '>+1');
+				activeTimeline.to('.formula .total', { opacity: 1, duration: 0.3 }, `<`);
 			}
 		});
 
@@ -250,7 +257,7 @@
 
 			// Check if rowIdx has changed
 			if (previousRowIdx !== null && previousRowIdx !== rowIdx) {
-				timeline.fromTo(
+				activeTimeline.fromTo(
 					embeddingRowRects,
 					{ opacity: 0.1 },
 					{
@@ -263,14 +270,14 @@
 				const weightColRects = d3
 					.selectAll('.weight-popover-content .lm-head-weights g.g-col rect')
 					.nodes();
-				timeline.set(weightColRects, { opacity: 0.1 });
-				timeline.set(weightBiasCells, { opacity: 0.1 });
+				activeTimeline.set(weightColRects, { opacity: 0.1 });
+				activeTimeline.set(weightBiasCells, { opacity: 0.1 });
 			}
 
 			outputCells.forEach((d, colIdx) => {
 				const weightColRects = d3.select(weightCols[colIdx]).selectAll('rect').nodes();
 
-				timeline.fromTo(
+				activeTimeline.fromTo(
 					weightColRects,
 					{ opacity: 0.1 },
 					{
@@ -280,7 +287,7 @@
 					`<50%`
 				);
 
-				timeline.from(
+				activeTimeline.from(
 					d,
 					{
 						opacity: 0,
@@ -288,7 +295,7 @@
 					},
 					`<50%`
 				);
-				timeline.fromTo(
+				activeTimeline.fromTo(
 					weightBiasCells[colIdx],
 					{ opacity: 0.1 },
 					{
@@ -306,25 +313,29 @@
 	let highlightCol: number | undefined = undefined;
 	let highlightRow: number | undefined = undefined;
 
-	const onMouseOverCell = (e, d) => {
+	const onMouseOverCell: MatrixCellHandler = (_event, d) => {
 		if (isAnimationActive) return;
 		highlightRow = d.rowIndex;
 		highlightCol = d.colIndex;
 	};
-	const onMouseOutSvg = () => {
+	const onMouseOutSvg: MatrixSvgHandler = () => {
 		highlightCol = undefined;
 		highlightRow = undefined;
 	};
 </script>
 
-<WeightPopoverCard id="logits" title={'Logits'} bind:isAnimationActive {timeline} bind:isOpen>
+<WeightPopoverCard
+	id="logits"
+	title={$t('popover.logits.title')}
+	bind:isAnimationActive
+	{timeline}
+	bind:isOpen
+>
 	<div class="weight-popover-content flex items-center justify-start">
 		<div class="matrix flex flex-col items-center">
 			<div class="title flex items-center gap-1">
-				<span>Output<br />Embedding</span>
-				<HelpPopover id="hidden-states" 
-					>{`After passing through all blocks, \nthe final token's embedding vector \ncontains all the contextual information \nfrom the preceding tokens.`}</HelpPopover
-				>
+				{@html $t('popover.outputEmbedding')}
+				<HelpPopover id="hidden-states">{$t('popover.logits.embeddingsHelp')}</HelpPopover>
 			</div>
 			<Matrix
 				className="hidden-state"
@@ -341,10 +352,8 @@
 		<div class="operator"><div class="symbol mul pl-3">&times;</div></div>
 		<div class="matrix flex flex-col items-center">
 			<div class="title flex items-center gap-1">
-				Output Projection Weights
-				<HelpPopover id="lm-head-weights" 
-					>{`Transforms the final embedding into a vocabulary distribution.\nParameters tha learned in training, fixed in prediction.`}</HelpPopover
-				>
+				{$t('popover.projectionWeights')}
+				<HelpPopover id="lm-head-weights">{$t('popover.logits.weightsHelp')}</HelpPopover>
 			</div>
 			<div class="flex gap-0">
 				<Matrix
@@ -365,8 +374,8 @@
 		<div class="operator"><div class="symbol plus">+</div></div>
 		<div class="matrix flex flex-col items-center">
 			<div class="title flex items-center gap-1">
-				Output Projection Bias<HelpPopover id="lm-head-bias" 
-					>{`Offsets added after the transformation.\nParameters tha learned in training, fixed in prediction.`}</HelpPopover
+				{$t('popover.projectionBias')}<HelpPopover id="lm-head-bias"
+					>{$t('popover.logits.biasHelp')}</HelpPopover
 				>
 			</div>
 			<Matrix
@@ -385,10 +394,8 @@
 		<div class="operator"><div class="symbol equal">=</div></div>
 		<div class="matrix flex flex-col items-center">
 			<div class="title flex items-center gap-1">
-				Logits
-				<HelpPopover id="logits" 
-					>{`Raw scores representing the model’s preference \nfor each vocabulary token before applying softmax.`}</HelpPopover
-				>
+				{$t('popover.logits.title')}
+				<HelpPopover id="logits">{$t('popover.logits.logitsHelp')}</HelpPopover>
 			</div>
 			<div class="flex">
 				<Matrix

@@ -1,18 +1,19 @@
 <script lang="ts">
 	import classNames from 'classnames';
 	import Operation from './Operation.svelte';
-	import DropoutPopover from './popovers/DropoutPopover.svelte';
+	import DropoutPopover from './Popovers/DropoutPopover.svelte';
 	import { tokens } from '~/store';
-	import LayerNormPopover from './popovers/LayerNormPopover.svelte';
-	import ActivationPopover from './popovers/ActivationPopover.svelte';
-	import ResidualPopover from './popovers/ResidualPopover.svelte';
+	import LayerNormPopover from './Popovers/LayerNormPopover.svelte';
+	import ActivationPopover from './Popovers/ActivationPopover.svelte';
+	import ResidualPopover from './Popovers/ResidualPopover.svelte';
 	import { onClickReadMore } from '~/utils/event';
 	import { drawResidualLine } from '~/utils/animation';
 	import {
 		isTextbookOpen,
 		textbookCurrentPage,
 		textbookCurrentPageId,
-		textbookPreviousPage
+		textbookPreviousPage,
+		textbookOpener
 	} from '~/store';
 	import { textPages } from '~/utils/textbookPages';
 
@@ -22,7 +23,7 @@
 
 	const { drawLine, removeLine } = drawResidualLine(id);
 	let isHovered = false;
-	let containerElement;
+	let containerElement: HTMLDivElement;
 
 	const onMouseOver = () => {
 		if ($isTextbookOpen && $textbookCurrentPageId === 'residual') return;
@@ -35,7 +36,7 @@
 		removeLine();
 	};
 
-	const typeToPageIdMap = {
+	const typeToPageIdMap: Partial<Record<string, string>> = {
 		activation: 'mlp',
 		dropout: 'dropout',
 		ln: 'layer-normalization',
@@ -43,16 +44,17 @@
 		'residual-end': 'residual'
 	};
 
-	function openTextbookPage(e) {
+	function openTextbookPage(e: MouseEvent | KeyboardEvent) {
 		e.preventDefault();
 		e.stopPropagation();
 
-		const pageId = typeToPageIdMap[type];
+		const pageId = type ? typeToPageIdMap[type] : undefined;
 		if (!pageId) return;
 
 		const pageIndex = textPages.findIndex((page) => page.id === pageId);
 		if (pageIndex !== -1) {
 			textbookPreviousPage.set($textbookCurrentPage);
+			textbookOpener.set(e.currentTarget instanceof HTMLElement ? e.currentTarget : null);
 			isTextbookOpen.set(true);
 			textbookCurrentPage.set(pageIndex);
 			textbookCurrentPageId.set(pageId);
@@ -60,14 +62,13 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 {#if type === 'activation'}
 	<div
 		{id}
 		data-click="activation"
 		class={classNames('operation-col column activation', className)}
-		role="group"
+		role="button"
+		tabindex="0"
 		class:active={isHovered}
 		bind:this={containerElement}
 		on:mouseenter={() => {
@@ -77,6 +78,9 @@
 			isHovered = false;
 		}}
 		on:click={openTextbookPage}
+		on:keydown={(e) => {
+			if (e.key === 'Enter' || e.key === ' ') openTextbookPage(e);
+		}}
 	>
 		{#each $tokens as token, index}
 			<Operation
@@ -96,7 +100,8 @@
 		{id}
 		data-click="dropout"
 		class={classNames('operation-col column dropout', className)}
-		role="group"
+		role="button"
+		tabindex="0"
 		class:active={isHovered}
 		bind:this={containerElement}
 		on:mouseenter={() => {
@@ -106,6 +111,9 @@
 			isHovered = false;
 		}}
 		on:click={openTextbookPage}
+		on:keydown={(e) => {
+			if (e.key === 'Enter' || e.key === ' ') openTextbookPage(e);
+		}}
 	>
 		{#each $tokens as token, index}
 			<Operation
@@ -124,7 +132,8 @@
 		{id}
 		data-click="layernorm"
 		class={classNames('operation-col column ln', className)}
-		role="group"
+		role="button"
+		tabindex="0"
 		class:active={isHovered}
 		bind:this={containerElement}
 		on:mouseenter={() => {
@@ -134,6 +143,9 @@
 			isHovered = false;
 		}}
 		on:click={openTextbookPage}
+		on:keydown={(e) => {
+			if (e.key === 'Enter' || e.key === ' ') openTextbookPage(e);
+		}}
 	>
 		{#each $tokens as token, index}
 			<Operation
@@ -152,12 +164,16 @@
 		data-click="residual-start"
 		id={`${id}-start`}
 		class={classNames('operation-col column residual', className)}
-		role="group"
+		role="button"
+		tabindex="0"
 		class:active={isHovered}
 		bind:this={containerElement}
 		on:mouseenter={onMouseOver}
 		on:mouseleave={onMouseOut}
 		on:click={openTextbookPage}
+		on:keydown={(e) => {
+			if (e.key === 'Enter' || e.key === ' ') openTextbookPage(e);
+		}}
 	>
 		{#each $tokens as token, index}
 			<Operation
@@ -177,12 +193,16 @@
 		id={`${id}-end`}
 		data-click="residual-end"
 		class={classNames('operation-col column residual', className)}
-		role="group"
+		role="button"
+		tabindex="0"
 		class:active={isHovered}
 		bind:this={containerElement}
 		on:mouseenter={onMouseOver}
 		on:mouseleave={onMouseOut}
 		on:click={openTextbookPage}
+		on:keydown={(e) => {
+			if (e.key === 'Enter' || e.key === ' ') openTextbookPage(e);
+		}}
 	>
 		{#each $tokens as token, index}
 			<Operation

@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import QkvWeightPopover from './popovers/QKVWeightPopover.svelte';
+	import { onDestroy, onMount } from 'svelte';
+	import QkvWeightPopover from './Popovers/QKVWeightPopover.svelte';
 	import { weightPopover, tooltip } from '~/store';
 	import { fade } from 'svelte/transition';
-	import AttentionWeightPopover from './popovers/AttentionWeightPopover.svelte';
-	import MLPWeightPopover from './popovers/MLPWeightPopover.svelte';
-	import MLPDownWeightPopover from './popovers/MLPDownWeightPopover.svelte';
+	import AttentionWeightPopover from './Popovers/AttentionWeightPopover.svelte';
+	import MLPWeightPopover from './Popovers/MLPWeightPopover.svelte';
+	import MLPDownWeightPopover from './Popovers/MLPDownWeightPopover.svelte';
 
-	import LogitWeightPopover from './popovers/LogitWeightPopover.svelte';
-	import { ArrowUpRightDownLeftOutline } from 'flowbite-svelte-icons';
+	import LogitWeightPopover from './Popovers/LogitWeightPopover.svelte';
+	import ArrowUpRightDownLeftOutline from 'flowbite-svelte-icons/ArrowUpRightDownLeftOutline.svelte';
 	import {
 		highlightAttentionPath,
 		highlightLogitPath,
@@ -17,71 +17,91 @@
 		removePathHighlight
 	} from '~/utils/textbook';
 
-	let resizeObserver: ResizeObserver;
 	let qkvPos = { left: 0, top: 0 };
 	let mlpPos = { left: 0, top: 0 };
 	let mlpDownPos = { left: 0, top: 0 };
 	let attentionPos = { left: 0, top: 0 };
 	let softmaxPos = { left: 0, top: 0 };
+	let isDestroyed = false;
 
-	let popoverEl: HTMLElement = null;
+	let popoverEl: HTMLElement | null = null;
 
-	function handleOutsideClick(e) {
-		if (!!$weightPopover && !popoverEl.contains(e.target)) {
+	onDestroy(() => {
+		isDestroyed = true;
+	});
+
+	function handleOutsideClick(e: MouseEvent) {
+		if (
+			$weightPopover &&
+			e.target instanceof Node &&
+			(!popoverEl || !popoverEl.contains(e.target))
+		) {
 			weightPopover.set(null);
 		}
 	}
 	// add global event
 	onMount(() => {
-		document.querySelector('.main-section').addEventListener('click', handleOutsideClick);
+		const mainSection = document.querySelector<HTMLElement>('.main-section');
+		if (!mainSection) return;
+
+		mainSection.addEventListener('click', handleOutsideClick);
 
 		return () => {
-			document.querySelector('.main-section').removeEventListener('click', handleOutsideClick);
+			mainSection.removeEventListener('click', handleOutsideClick);
 		};
 	});
 
 	//set popover pos
 	onMount(() => {
 		const setPosition = () => {
+			if (isDestroyed) return;
 			const scrollLeft = window.scrollX;
-			const topbarHeight = document.querySelector('.top-bar')?.offsetHeight;
+			const topbarHeight = document.querySelector<HTMLElement>('.top-bar')?.offsetHeight ?? 0;
 
-			const embedding = document.querySelector('.step.qkv .content');
-			const mlp = document.querySelector('.step.mlp .content');
-			const mlpDown = document.querySelector('.step.mlp .second-layer');
-			const attention = document.querySelector('.step.attention .content .multi-head');
-			const softmax = document.querySelector('.step.transformer-blocks .content');
+			const embedding = document.querySelector<HTMLElement>('.step.qkv .content');
+			const mlp = document.querySelector<HTMLElement>('.step.mlp .content');
+			const mlpDown = document.querySelector<HTMLElement>('.step.mlp .second-layer');
+			const attention = document.querySelector<HTMLElement>('.step.attention .content .multi-head');
+			const softmax = document.querySelector<HTMLElement>('.step.transformer-blocks .content');
 
-			const embeddingRect = embedding?.getBoundingClientRect();
-			const mlpRect = mlp?.getBoundingClientRect();
-			const mlpDownRect = mlpDown?.getBoundingClientRect();
-			const attentionRect = attention?.getBoundingClientRect();
-			const softmaxRect = softmax?.getBoundingClientRect();
+			if (
+				!embedding?.isConnected ||
+				!mlp?.isConnected ||
+				!mlpDown?.isConnected ||
+				!attention?.isConnected ||
+				!softmax?.isConnected
+			) {
+				return;
+			}
 
-			qkvPos = { left: embeddingRect?.right + scrollLeft, top: embeddingRect?.top - topbarHeight };
-			mlpPos = { left: mlpRect?.left + scrollLeft, top: mlpRect?.top - topbarHeight };
-			mlpDownPos = { left: mlpDownRect?.left + scrollLeft, top: mlpDownRect?.top - topbarHeight };
+			const embeddingRect = embedding.getBoundingClientRect();
+			const mlpRect = mlp.getBoundingClientRect();
+			const mlpDownRect = mlpDown.getBoundingClientRect();
+			const attentionRect = attention.getBoundingClientRect();
+			const softmaxRect = softmax.getBoundingClientRect();
+
+			qkvPos = { left: embeddingRect.right + scrollLeft, top: embeddingRect.top - topbarHeight };
+			mlpPos = { left: mlpRect.left + scrollLeft, top: mlpRect.top - topbarHeight };
+			mlpDownPos = { left: mlpDownRect.left + scrollLeft, top: mlpDownRect.top - topbarHeight };
 			attentionPos = {
-				left: attentionRect?.right + scrollLeft,
-				top: attentionRect?.top + attentionRect?.height / 2 - topbarHeight
+				left: attentionRect.right + scrollLeft,
+				top: attentionRect.top + attentionRect.height / 2 - topbarHeight
 			};
 			softmaxPos = {
-				left: softmaxRect?.left + scrollLeft,
-				top: softmaxRect?.top - topbarHeight
+				left: softmaxRect.left + scrollLeft,
+				top: softmaxRect.top - topbarHeight
 			};
 		};
 
 		setPosition();
 
-		resizeObserver = new ResizeObserver((entries) => {
+		const resizeObserver = new ResizeObserver(() => {
 			setPosition();
 		});
-		const elements = document?.querySelectorAll('.resize-watch');
+		const elements = document.querySelectorAll<HTMLElement>('.resize-watch');
 		elements.forEach((el) => resizeObserver.observe(el));
 
-		return () => {
-			document.querySelector('.main-section').removeEventListener('click', handleOutsideClick);
-		};
+		return () => resizeObserver.disconnect();
 	});
 
 	//tooltip
@@ -90,7 +110,7 @@
 	let x = 0;
 	let y = 0;
 
-	function handleMouseMove(e) {
+	function handleMouseMove(e: MouseEvent) {
 		x = e.clientX + 10;
 		y = e.clientY + 10;
 	}

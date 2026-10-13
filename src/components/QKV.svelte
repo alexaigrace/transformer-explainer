@@ -4,28 +4,31 @@
 	import { onMount } from 'svelte';
 	import VectorCanvas from './common/VectorCanvas.svelte';
 	import OperationGroup from './OperationGroup.svelte';
-	import { Tooltip } from 'flowbite-svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
+	import { t } from '~/i18n';
 
 	export let className: string | undefined = undefined;
 
 	const embeddingVectorColor = 'bg-gray-300';
 
 	let vectorHoverIdx: number | null = null;
-	const queryVectorColor = 'bg-blue-200';
-	const keyVectorColor = 'bg-red-200';
-	const valVectorColor = 'bg-green-200';
+	const queryVectorColor = 'bg-blue-300';
+	const keyVectorColor = 'bg-red-300';
+	const valVectorColor = 'bg-green-300';
 
-	const queryHeadVectorColor = 'bg-blue-300';
-	const keyHeadVectorColor = 'bg-red-300';
-	const valHeadVectorColor = 'bg-green-300';
+	const queryHeadVectorColor = 'bg-blue-500';
+	const keyHeadVectorColor = 'bg-red-500';
+	const valHeadVectorColor = 'bg-green-500';
 
 	// attentionHeadIdx subscribe
-	const headCursors = {};
+	const headCursors: Record<string, HTMLDivElement | null | undefined> = {};
 
 	onMount(() => {
 		const unsubscribe = attentionHeadIdx.subscribe(async (newIdx) => {
 			Object.values(headCursors).forEach((el) => {
-				el.style.top = `${($vectorHeight / $modelMeta.attention_head_num) * newIdx}px`;
+				if (el?.isConnected) {
+					el.style.top = `${($vectorHeight / $modelMeta.attention_head_num) * newIdx}px`;
+				}
 			});
 		});
 
@@ -52,7 +55,7 @@
 				{/each}
 			</div>
 			<Tooltip class="popover" triggeredBy={'.qkv .embedding-column .vector'} placement="right"
-				>vector({$modelMeta.dimension})</Tooltip
+				>{$t('viz.vectorSize', { n: $modelMeta.dimension })}</Tooltip
 			>
 
 			<div class="operations flex">
@@ -107,7 +110,7 @@
 				</div>
 			{/each}
 			<Tooltip class="popover" triggeredBy={'.qkv .qkv-column .vector'} placement="right"
-				>vector({$modelMeta.dimension * 3})</Tooltip
+				>{$t('viz.vectorSize', { n: $modelMeta.dimension * 3 })}</Tooltip
 			>
 		</div>
 	</div>
@@ -141,17 +144,18 @@
 				.sub-vector {
 					user-select: none;
 					font-size: 1rem;
+					opacity: 0.8;
 					span {
-						opacity: 0.3;
+						opacity: 0.45;
 					}
 					&.query {
-						color: theme('colors.blue.500');
+						color: theme('colors.blue.600');
 					}
 					&.key {
-						color: theme('colors.red.500');
+						color: theme('colors.red.600');
 					}
 					&.value {
-						color: theme('colors.green.500');
+						color: theme('colors.green.600');
 					}
 
 					.head-rest {

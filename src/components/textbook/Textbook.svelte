@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { GradientButton } from 'flowbite-svelte';
-	import { BookOpenSolid } from 'flowbite-svelte-icons';
+	import GradientButton from 'flowbite-svelte/GradientButton.svelte';
+	import BookOpenSolid from 'flowbite-svelte-icons/BookOpenSolid.svelte';
+	import { onDestroy, tick } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import {
 		textbookCurrentPage,
@@ -8,28 +9,50 @@
 		isTextbookOpen,
 		expandedBlock,
 		textbookCurrentPageId,
-		userId
+		userId,
+		textbookOpener
 	} from '~/store';
 	import { textPages } from '~/utils/textbookPages';
 	import TextbookCard from './TextbookCard.svelte';
+	import { t } from '~/i18n';
 
 	export let showTextCard: boolean = false;
+	let transitionTimer: ReturnType<typeof setTimeout> | undefined;
+	function clearTransitionTimer() {
+		if (transitionTimer !== undefined) clearTimeout(transitionTimer);
+		transitionTimer = undefined;
+	}
+	onDestroy(clearTransitionTimer);
+
+	async function handleCloseTextbook() {
+		isTextbookOpen.set(false);
+		await tick();
+
+		const focusTarget = $textbookOpener?.isConnected
+			? $textbookOpener
+			: document.querySelector<HTMLElement>('.floating-btn');
+		focusTarget?.focus({ preventScroll: true });
+		textbookOpener.set(null);
+	}
 
 	$: if (showTextCard) {
 		handlePageTransition($textbookCurrentPage, $textbookPreviousPage);
 	} else {
-		if ($textbookPreviousPage >= 0 && textPages[$textbookPreviousPage]?.out) {
-			textPages[$textbookPreviousPage].out();
+		clearTransitionTimer();
+		if ($textbookPreviousPage >= 0) {
+			textPages[$textbookPreviousPage]?.out();
 		}
 		textbookPreviousPage.set(-1);
 	}
 
 	function handlePageTransition(newPage: number, oldPage: number) {
+		clearTransitionTimer();
 		if (oldPage >= 0 && oldPage !== newPage) {
 			textPages[oldPage]?.out();
 		}
-		setTimeout(() => {
-			textPages[newPage]?.on();
+		transitionTimer = setTimeout(() => {
+			transitionTimer = undefined;
+			if (showTextCard) textPages[newPage]?.on();
 		}, 0);
 	}
 </script>
@@ -41,7 +64,9 @@
 			pill={true}
 			color="purpleToBlue"
 			class="floating-btn h-14 w-14"
+			aria-label={$t('textbook.openButton')}
 			on:click={() => {
+				textbookOpener.set(document.querySelector<HTMLElement>('.floating-btn'));
 				isTextbookOpen.set(true);
 
 				window.dataLayer?.push({
@@ -58,25 +83,24 @@
 {/if}
 
 {#if showTextCard}
-	<TextbookCard onClose={() => isTextbookOpen.set(false)} />
+	<TextbookCard onClose={handleCloseTextbook} />
 {/if}
 
 <style lang="scss">
-	:global(.floating-container) {
+	.floating-container {
 		position: fixed;
 		bottom: 2rem;
 		right: 2rem;
 		z-index: $TEXTBOOK_INDEX;
 	}
 
-	.floating-btn {
+	:global(.floating-btn) {
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 		transition: all 0.2s ease;
-
-		&:hover {
-			transform: translateY(-2px);
-			box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
-		}
+	}
+	:global(.floating-btn:hover) {
+		transform: translateY(-2px);
+		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
 	}
 	:root {
 		--textbook-highlight-color: theme('colors.blue.600');
@@ -105,11 +129,6 @@
 	}
 
 	// page - transformer
-	:global(.generate-button) {
-		.highlight-text {
-			display: none;
-		}
-	}
 	:global(.input-form.textbook-highlight .input-btn-group) {
 		transition: box-shadow 0.2s ease-in-out;
 		box-shadow: var(--textbook-highlight-shadow-out) !important;
@@ -484,18 +503,12 @@
 	}
 
 	// residual
-	:global(.operation-col.residual.textbook-highlight) {
-		// pointer-events: none;
-	}
 	:global(.residual-start.textbook-highlight .residual-text) {
 		color: theme('colors.gray.600') !important;
 		background: var(--textbook-highlight-background) !important;
 	}
 
 	// ln, dropout
-	:global(.operation-col.textbook-highlight) {
-		// pointer-events: none;
-	}
 	:global(.operation-col.textbook-highlight .icon) {
 		opacity: 0 !important;
 	}

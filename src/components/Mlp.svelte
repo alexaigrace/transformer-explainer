@@ -1,12 +1,13 @@
 <script lang="ts">
-	import { tokens, modelMeta, blockIdx } from '~/store';
+	import { tokens, modelMeta, blockIdx, attentionHeadIdx, vectorHeight } from '~/store';
 	import classNames from 'classnames';
-	import { setContext } from 'svelte';
+	import { onMount, setContext } from 'svelte';
 	import OperationGroup from './OperationGroup.svelte';
 	import VectorCanvas from './common/VectorCanvas.svelte';
-	import { Tooltip } from 'flowbite-svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
 	import { onClickReadMore } from '~/utils/event';
 	import TextbookTooltip from '~/components/common/TextbookTooltip.svelte';
+	import { t } from '~/i18n';
 
 	export let className: string | undefined = undefined;
 
@@ -15,6 +16,7 @@
 	const firstLayerlColor = 'bg-purple-200';
 	const secondLayerColor = 'bg-indigo-200';
 	const outputColor = 'bg-blue-200';
+	const queryHeadVectorColor = 'bg-purple-400';
 
 	let isHovered = false;
 
@@ -27,6 +29,24 @@
 	}
 
 	let vectorHoverIdx: number | null = null;
+
+	// attentionHeadIdx subscribe
+	const headCursors: Record<string, HTMLDivElement | null | undefined> = {};
+
+	onMount(() => {
+		const unsubscribe = attentionHeadIdx.subscribe(async (newIdx) => {
+			Object.values(headCursors).forEach((el) => {
+				if (el?.isConnected) {
+					el.style.top = `${($vectorHeight / $modelMeta.attention_head_num) * newIdx}px`;
+				}
+			});
+		});
+
+		return () => {
+			unsubscribe();
+		};
+	});
+	$: isLastBlock = $blockIdx === $modelMeta?.layer_num - 1;
 </script>
 
 <div class={classNames('mlp', 'mlpUp', 'mlpDown', className)} data-click="mlp-step">
@@ -38,7 +58,7 @@
 		data-click="mlp-step-title"
 	>
 		<div class="w-max">
-			<TextbookTooltip id="mlp">MLP</TextbookTooltip>
+			<TextbookTooltip id="mlp">{$t('viz.mlp')}</TextbookTooltip>
 		</div>
 	</div>
 
@@ -61,19 +81,22 @@
 						<span class="label float">{token}</span>
 						<div class={`vector flex flex-col  ${firstLayerlColor}`}>
 							<VectorCanvas colorScale="purple" active={vectorHoverIdx === index} />
-							<div class="sub-vector x1-12 head1"></div>
+							<div
+								class={`sub-vector x1-12 head1 ${queryHeadVectorColor} absolute`}
+								bind:this={headCursors[`token${index}_out`]}
+							></div>
 							<div class="sub-vector head-rest grow"></div>
 						</div>
 					</div>
 				{/each}
 			</div>
 			<Tooltip triggeredBy={'.step.mlp .initial .cell'} class="popover" placement="right">
-				vector({$modelMeta.dimension})</Tooltip
+				{$t('viz.vectorSize', { n: $modelMeta.dimension })}</Tooltip
 			>
 			<OperationGroup type="dropout" id={'mlp-first-dropout'} />
 			<OperationGroup type="residual-end" id={'embedding-residual'} />
-			<OperationGroup type="ln" id={'mlp-first-ln'} />
 			<OperationGroup type="residual-start" id={'mlp-residual'} />
+			<OperationGroup type="ln" id={'mlp-first-ln'} />
 		</div>
 		<div class="layer mlpUp mlpDown second-layer flex justify-between">
 			<div class="column mlp-mid-column">
@@ -90,7 +113,7 @@
 			</div>
 		</div>
 		<Tooltip triggeredBy={'.step.mlp .mlp-mid-column .cell'} class="popover" placement="right">
-			vector({$modelMeta.dimension * 4})</Tooltip
+			{$t('viz.vectorSize', { n: $modelMeta.dimension * 4 })}</Tooltip
 		>
 		<div class="layer mlpDown out-layer relative flex justify-between">
 			<div class="activation">
@@ -105,7 +128,9 @@
 					{/each}
 				</div>
 				<OperationGroup type="residual-end" id={'mlp-residual'} />
-				<OperationGroup type="ln" id={'mlp-second-ln'} />
+				{#if isLastBlock}
+					<OperationGroup type="ln" id={'mlp-second-ln'} />
+				{/if}
 				<div
 					class="column out mlp-out-column"
 					class:last-block={$blockIdx === $modelMeta.layer_num - 1}
@@ -119,7 +144,7 @@
 					{/each}
 				</div>
 				<Tooltip triggeredBy={'.step.mlp .mlp-out-column .cell'} class="popover" placement="right">
-					vector({$modelMeta.dimension})</Tooltip
+					{$t('viz.vectorSize', { n: $modelMeta.dimension })}</Tooltip
 				>
 			</div>
 		</div>
@@ -128,10 +153,6 @@
 
 <style lang="scss">
 	.mlp {
-		.title > div {
-			// cursor: help;
-		}
-
 		.mlp-bounding {
 			top: -0.5rem;
 			padding: 0.5rem 0;

@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { AngleLeftOutline, AngleRightOutline } from 'flowbite-svelte-icons';
-	import { onMount, tick } from 'svelte';
+	import AngleLeftOutline from 'flowbite-svelte-icons/AngleLeftOutline.svelte';
+	import AngleRightOutline from 'flowbite-svelte-icons/AngleRightOutline.svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import {
 		blockIdx,
 		blockIdxTemp,
@@ -14,58 +15,90 @@
 		userId
 	} from '~/store';
 	import { textPages } from '~/utils/textbookPages';
+	import { t } from '~/i18n';
 	import TextbookTooltip from './common/TextbookTooltip.svelte';
 
-	let resizeObserver: ResizeObserver;
 	let boundingPos = { left: 0, top: 0, width: 0 };
 
-	let duration = 800;
+	const duration = 800;
+	let isDestroyed = false;
+	let isTransitionActive = false;
+	let activeTransitionContainer: HTMLElement | null = null;
+	let unsubscribeBlockIdxTemp: (() => void) | undefined;
+	const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
+
+	const scheduleTimeout = (callback: () => void, timeout: number) => {
+		let timeoutId: ReturnType<typeof setTimeout>;
+		timeoutId = setTimeout(() => {
+			pendingTimeouts.delete(timeoutId);
+			if (!isDestroyed) callback();
+		}, timeout);
+		pendingTimeouts.add(timeoutId);
+	};
 
 	const asyncUpdateBlockIdx = (timeout = duration) => {
-		setTimeout(() => {
+		scheduleTimeout(() => {
 			$blockIdx = $blockIdxTemp;
 		}, timeout);
 	};
 
-	const animateForwardTransition = async ({ asyncTime } = {}) => {
-		const container = document.querySelector('.steps .blocks');
+	const animateBlockTransition = async (
+		animationClass: 'animate-forward' | 'animate-backward',
+		asyncTime = duration
+	) => {
 		await tick();
+		if (isDestroyed) return;
 
+		const container = document.querySelector<HTMLElement>('.steps .blocks');
+		if (!container) {
+			asyncUpdateBlockIdx(asyncTime);
+			return;
+		}
+
+		isTransitionActive = true;
+		activeTransitionContainer = container;
 		isOnBlockTransition.set(true);
 		await tick();
+		if (isDestroyed) return;
+		if (!container.isConnected) {
+			isTransitionActive = false;
+			activeTransitionContainer = null;
+			isOnBlockTransition.set(false);
+			asyncUpdateBlockIdx(asyncTime);
+			return;
+		}
 
-		container.classList.add('animate-forward');
+		container.classList.add(animationClass);
 		await tick();
+		if (isDestroyed) return;
+		if (!container.isConnected) {
+			container.classList.remove(animationClass);
+			isTransitionActive = false;
+			activeTransitionContainer = null;
+			isOnBlockTransition.set(false);
+			asyncUpdateBlockIdx(asyncTime);
+			return;
+		}
 
 		asyncUpdateBlockIdx(asyncTime);
 
-		setTimeout(() => {
-			container.classList.remove('animate-forward');
+		scheduleTimeout(() => {
+			if (container.isConnected) container.classList.remove(animationClass);
+			if (activeTransitionContainer === container) activeTransitionContainer = null;
+			isTransitionActive = false;
 			isOnBlockTransition.set(false);
 		}, duration);
 	};
 
-	const animateBackwardTransition = async ({ asyncTime } = {}) => {
-		const container = document.querySelector('.steps .blocks');
-		await tick();
+	const animateForwardTransition = ({ asyncTime = duration }: { asyncTime?: number } = {}) =>
+		animateBlockTransition('animate-forward', asyncTime);
 
-		isOnBlockTransition.set(true);
-		await tick();
-
-		container.classList.add('animate-backward');
-		await tick();
-
-		asyncUpdateBlockIdx(asyncTime);
-
-		setTimeout(() => {
-			container.classList.remove('animate-backward');
-			isOnBlockTransition.set(false);
-		}, duration);
-	};
+	const animateBackwardTransition = ({ asyncTime = duration }: { asyncTime?: number } = {}) =>
+		animateBlockTransition('animate-backward', asyncTime);
 
 	let currentBlockIdx = $blockIdxTemp;
 
-	blockIdxTemp.subscribe((newIdx) => {
+	unsubscribeBlockIdxTemp = blockIdxTemp.subscribe((newIdx) => {
 		if (newIdx === currentBlockIdx) return;
 
 		// 2->1
@@ -107,17 +140,36 @@
 		}
 	});
 
+	onDestroy(() => {
+		isDestroyed = true;
+		unsubscribeBlockIdxTemp?.();
+		for (const timeoutId of pendingTimeouts) clearTimeout(timeoutId);
+		pendingTimeouts.clear();
+
+		if (isTransitionActive) {
+			if (activeTransitionContainer?.isConnected) {
+				activeTransitionContainer.classList.remove('animate-forward', 'animate-backward');
+			}
+			isTransitionActive = false;
+			activeTransitionContainer = null;
+			isOnBlockTransition.set(false);
+		}
+	});
+
 	// transformer block bounding
 	onMount(() => {
 		const setPosition = () => {
 			const scrollLeft = window.scrollX;
-			const topbarHeight = document.querySelector('.top-bar')?.offsetHeight;
+			const topbarHeight = document.querySelector<HTMLElement>('.top-bar')?.offsetHeight ?? 0;
 
-			const embedding = document.querySelector('.step.qkv .content .block-start-column');
+			const embedding = document.querySelector<HTMLElement>(
+				'.step.qkv .content .block-start-column'
+			);
 			const block =
 				$blockIdx === $modelMeta.layer_num - 1
-					? document.querySelector('.step.transformer-blocks .content .column.final')
-					: document.querySelector('.step.transformer-blocks .content');
+					? document.querySelector<HTMLElement>('.step.transformer-blocks .content .column.final')
+					: document.querySelector<HTMLElement>('.step.transformer-blocks .content');
+			if (!embedding || !block) return;
 
 			const embeddingRect = embedding.getBoundingClientRect();
 			const blockRect = block.getBoundingClientRect();
@@ -130,16 +182,18 @@
 		};
 		setPosition();
 
-		resizeObserver = new ResizeObserver((entries) => {
+		const resizeObserver = new ResizeObserver(() => {
 			setPosition();
 		});
-		const elements = document?.querySelectorAll('.resize-watch');
+		const elements = document.querySelectorAll<HTMLElement>('.resize-watch');
 		elements.forEach((el) => resizeObserver.observe(el));
+
+		return () => resizeObserver.disconnect();
 	});
 
-	const onClickNext = (e) => {
+	const onClickNext = (e: MouseEvent) => {
 		e.stopPropagation();
-		textPages.find((page) => page.id === 'blocks')?.complete();
+		textPages.find((page) => page.id === 'blocks')?.complete?.();
 
 		$blockIdxTemp = $blockIdxTemp < $modelMeta.layer_num - 1 ? $blockIdxTemp + 1 : 0;
 
@@ -150,9 +204,9 @@
 			user_id: $userId
 		});
 	};
-	const onClickPrev = (e) => {
+	const onClickPrev = (e: MouseEvent) => {
 		e.stopPropagation();
-		textPages.find((page) => page.id === 'blocks')?.complete();
+		textPages.find((page) => page.id === 'blocks')?.complete?.();
 
 		$blockIdxTemp = $blockIdxTemp > 0 ? $blockIdxTemp - 1 : $modelMeta.layer_num - 1;
 
@@ -190,12 +244,14 @@
 	</TextbookTooltip>
 	<button
 		data-click="transformer-block-prev-btn"
+		aria-label={$t('viz.previousBlock')}
 		on:click={onClickPrev}
 		disabled={$isOnAnimation || $isOnBlockTransition || $blockIdxTemp === 0}
 		><AngleLeftOutline size="sm" /></button
 	>
 	<button
 		data-click="transformer-block-next-btn"
+		aria-label={$t('viz.nextBlock')}
 		on:click={onClickNext}
 		disabled={$isOnAnimation || $isOnBlockTransition || $blockIdxTemp === $modelMeta.layer_num - 1}
 		><AngleRightOutline size="sm" /></button

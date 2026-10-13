@@ -80,7 +80,7 @@ export function highlightLogitPath() {
 /**
  * Highlight path
  */
-export function highlightPath(value) {
+export function highlightPath(value: string) {
 	document
 		.querySelectorAll('svg g.path-group')
 		.forEach((el) => ((el as HTMLElement).style.opacity = '0.3'));
@@ -128,11 +128,12 @@ export function removePathHighlight() {
 /**
  * Get transformer-bounding element height
  */
-export function getTransformerBoundingHeight(): string {
+export function getTransformerBoundingHeight(): string | undefined {
 	const transformerBounding = document.querySelector('.transformer-bounding');
 	if (transformerBounding) {
 		return getComputedStyle(transformerBounding).height;
 	}
+	return undefined;
 }
 
 /**
@@ -141,7 +142,7 @@ export function getTransformerBoundingHeight(): string {
 export function syncWithTransformerBoundingHeight(selector: string) {
 	const height = getTransformerBoundingHeight();
 	const element = document.querySelector(selector) as HTMLElement;
-	if (element) {
+	if (element && height !== undefined) {
 		element.style.height = height;
 	}
 }
@@ -190,7 +191,7 @@ export function applyTransformerBoundingHeight(selectors: string[]) {
 	const height = getTransformerBoundingHeight();
 	selectors.forEach((selector) => {
 		const element = document.querySelector(selector) as HTMLElement;
-		if (element) {
+		if (element && height !== undefined) {
 			element.style.height = height;
 		}
 	});

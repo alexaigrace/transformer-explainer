@@ -5,6 +5,7 @@
 	import TextbookTooltip from './common/TextbookTooltip.svelte';
 	import { removeFingerFromElements } from '~/utils/textbook';
 	import { textPages } from '~/utils/textbookPages';
+	import { t } from '~/i18n';
 
 	export let disabled: boolean = false;
 
@@ -29,12 +30,12 @@
 		bind:value={temperatureIndex}
 		valueText={temperatureTemp}
 		onClick={() => {
-			textPages.find((page) => page.id === 'temperature')?.complete();
+			textPages.find((page) => page.id === 'temperature')?.complete?.();
 		}}
 	>
 		<div class="temperature-text flex items-center gap-[2px]">
 			<TextbookTooltip id="temperature">
-				<div>Temperature</div></TextbookTooltip
+				<div>{$t('param.temperature')}</div></TextbookTooltip
 			>
 			<!-- <HelpPopover id="temperature-help"  goTo="article-temperature">
 				{`Changes output \nprobability distribution \nand randomness \nof next token.`}

@@ -13,9 +13,10 @@
 	import AttentionMatrix from '~/components/AttentionMatrix.svelte';
 
 	import { setContext, getContext } from 'svelte';
-	import { Tooltip } from 'flowbite-svelte';
+	import Tooltip from 'flowbite-svelte/Tooltip.svelte';
 	import { onClickReadMore } from '~/utils/event';
 	import TextbookTooltip from './common/TextbookTooltip.svelte';
+	import { t } from '~/i18n';
 
 	export let className: string | undefined = undefined;
 
@@ -23,11 +24,11 @@
 	const blockId = getContext('block-id');
 	$: isAttentionExpanded = $expandedBlock.id === blockId;
 
-	const queryHeadVectorColor = 'bg-blue-300';
-	const keyHeadVectorColor = 'bg-red-300';
-	const valHeadVectorColor = 'bg-green-300';
+	const queryHeadVectorColor = 'bg-blue-400';
+	const keyHeadVectorColor = 'bg-red-400';
+	const valHeadVectorColor = 'bg-green-400';
 
-	const outputVectorColor = 'bg-purple-300';
+	const outputVectorColor = 'bg-purple-500';
 
 	let isHovered = false;
 
@@ -54,7 +55,7 @@
 		data-click="attention-step-title"
 	>
 		<div class="w-max">
-			<TextbookTooltip id="self-attention">Multi-head Self Attention</TextbookTooltip>
+			<TextbookTooltip id="self-attention">{$t('viz.multiHeadSelfAttention')}</TextbookTooltip>
 		</div>
 	</div>
 	<div class="content relative">
@@ -71,7 +72,9 @@
 				>
 					<div class="qkv flex h-full flex-col justify-center gap-[5rem] pl-[6rem]">
 						<div class="column key">
-							<div class="head1 title"><TextbookTooltip id="qkv">Key</TextbookTooltip></div>
+							<div class="head1 title">
+								<TextbookTooltip id="qkv">{$t('viz.key')}</TextbookTooltip>
+							</div>
 
 							{#each $tokens as token, index}
 								<div
@@ -84,12 +87,16 @@
 								</div>
 							{/each}
 							<Tooltip class="popover" triggeredBy={'.step.attention .key .cell'} placement="right"
-								>Key, Head {$attentionHeadIdx + 1}, vector({$modelMeta.dimension /
-									$modelMeta.attention_head_num})</Tooltip
+								>{$t('viz.keyVector', {
+									head: $attentionHeadIdx + 1,
+									n: $modelMeta.dimension / $modelMeta.attention_head_num
+								})}</Tooltip
 							>
 						</div>
 						<div class="column query">
-							<div class="head1 title"><TextbookTooltip id="qkv">Query</TextbookTooltip></div>
+							<div class="head1 title">
+								<TextbookTooltip id="qkv">{$t('viz.query')}</TextbookTooltip>
+							</div>
 							{#each $tokens as token, index}
 								<div
 									class="head1 cell x1-12 query text-xs"
@@ -104,12 +111,16 @@
 								class="popover"
 								triggeredBy={'.step.attention .query .cell'}
 								placement="right"
-								>Query, Head {$attentionHeadIdx + 1}, vector({$modelMeta.dimension /
-									$modelMeta.attention_head_num})</Tooltip
+								>{$t('viz.queryVector', {
+									head: $attentionHeadIdx + 1,
+									n: $modelMeta.dimension / $modelMeta.attention_head_num
+								})}</Tooltip
 							>
 						</div>
 						<div class="column value">
-							<div class="head1 title"><TextbookTooltip id="qkv">Value</TextbookTooltip></div>
+							<div class="head1 title">
+								<TextbookTooltip id="qkv">{$t('viz.value')}</TextbookTooltip>
+							</div>
 							{#each $tokens as token, index}
 								<div class="head1 cell x1-12 text-xs" class:last={index === $tokens.length - 1}>
 									<span class="label float">{token}</span>
@@ -120,8 +131,10 @@
 								class="popover"
 								triggeredBy={'.step.attention .value .cell'}
 								placement="right"
-								>Value, Head {$attentionHeadIdx + 1}, vector({$modelMeta.dimension /
-									$modelMeta.attention_head_num})</Tooltip
+								>{$t('viz.valueVector', {
+									head: $attentionHeadIdx + 1,
+									n: $modelMeta.dimension / $modelMeta.attention_head_num
+								})}</Tooltip
 							>
 						</div>
 					</div>
@@ -131,7 +144,7 @@
 					<div class="head-out mx-[2rem]">
 						<div class="column out">
 							<div class="head1 title">
-								<TextbookTooltip id="output-concatenation">Out</TextbookTooltip>
+								<TextbookTooltip id="output-concatenation">{$t('viz.out')}</TextbookTooltip>
 							</div>
 							{#each $tokens as token, index}
 								<div class="head1 cell x1-12" class:last={index === $tokens.length - 1}>
@@ -156,9 +169,6 @@
 		z-index: $COLUMN_TITLE_INDEX;
 	}
 	.attention {
-		> .title > div {
-			// cursor: help;
-		}
 		&.expanded {
 			.title,
 			:global(.head-content) {

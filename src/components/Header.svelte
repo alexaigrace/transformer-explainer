@@ -1,5 +1,5 @@
 <script>
-	import { GithubSolid } from 'flowbite-svelte-icons';
+	import GithubSolid from 'flowbite-svelte-icons/GithubSolid.svelte';
 </script>
 
 <header class="flex flex-shrink-0 items-center justify-between bg-blue-950 p-2 px-5">

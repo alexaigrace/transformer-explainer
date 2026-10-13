@@ -1,7 +1,17 @@
 <script lang="ts">
 	import * as d3 from 'd3';
+	import { onDestroy } from 'svelte';
 	import tailwindConfig from '../../../tailwind.config';
 	import resolveConfig from 'tailwindcss/resolveConfig';
+	import type {
+		MatrixCell,
+		MatrixCellElement,
+		MatrixCellHandler,
+		MatrixColorScale,
+		MatrixSvgHandler,
+		MatrixTooltipContent,
+		MatrixTooltipHandler
+	} from '~/utils/matrixTypes';
 
 	const { theme } = resolveConfig(tailwindConfig);
 
@@ -17,32 +27,16 @@
 
 	export let groupBy: 'row' | 'col' = 'row';
 	export let shape: 'circle' | 'rect' = 'rect';
-	export let colorScale: string | ((t: number, i: number) => string) | undefined = undefined;
+	export let colorScale: string | MatrixColorScale | undefined = undefined;
 
-	export let onMouseOverCell: (
-		event: Event,
-		data: any,
-		el?: SVGRectElement | d3.BaseType
-	) => void | undefined;
-	export let onMouseOutCell: (
-		event: Event,
-		data: any,
-		el?: SVGRectElement | d3.BaseType
-	) => void | undefined;
-	export let onMouseOutSvg: (
-		event: Event,
-		data: any,
-		el?: SVGRectElement | d3.BaseType
-	) => void | undefined;
-	export let showTooltip: (
-		event: Event,
-		data: any,
-		el: SVGRectElement | d3.BaseType
-	) => string | undefined;
-	export let highlightRow: number | undefined;
-	export let highlightCol: number | undefined;
+	export let onMouseOverCell: MatrixCellHandler | undefined = undefined;
+	export let onMouseOutCell: MatrixCellHandler | undefined = undefined;
+	export let onMouseOutSvg: MatrixSvgHandler | undefined = undefined;
+	export let showTooltip: MatrixTooltipHandler | undefined = undefined;
+	export let highlightRow: number | undefined = undefined;
+	export let highlightCol: number | undefined = undefined;
 
-	let svgEl: HTMLOrSVGElement;
+	let svgEl: SVGSVGElement | undefined;
 
 	$: svgWidth =
 		groupBy === 'col'
@@ -53,31 +47,36 @@
 			? dimension * cellHeight + (dimension - 1) * rowGap
 			: rowLen * cellHeight + (rowLen - 1) * rowGap;
 
-	const colorKey = typeof colorScale === 'string' ? colorScale : 'blue';
+	type ThemeColorKey = keyof typeof theme.colors;
+	const isThemeColorKey = (value: string): value is ThemeColorKey =>
+		Object.prototype.hasOwnProperty.call(theme.colors, value);
+	const colorKey =
+		typeof colorScale === 'string' && isThemeColorKey(colorScale) ? colorScale : 'blue';
 	const matrixColorScale =
 		typeof colorScale === 'function'
 			? colorScale
 			: d3.interpolate('white', theme.colors[colorKey][400]);
+	type MatrixRow = (number | null)[];
+	const isFiniteCell = (value: number | null): value is number =>
+		typeof value === 'number' && Number.isFinite(value);
 
 	const drawMatrixSvg = () => {
-		const svg = d3.select(svgEl);
+		if (!svgEl || isDestroyed) return;
+		const svg = d3.select<SVGSVGElement, unknown>(svgEl);
 
-		if (!!onSvgOut) svg.on('mouseleave', onSvgOut);
-
-		let cells;
+		if (onMouseOutSvg) svg.on('mouseleave', onSvgOut);
 
 		if (groupBy === 'col') {
-			let cols;
-			cols = svg
-				.selectAll('g.g-col')
+			const cols = svg
+				.selectAll<SVGGElement, MatrixRow>('g.g-col')
 				.data(data)
 				.join('g')
 				.attr('class', (d, i) => `g-col g-col-${i} col-${i}`);
 			cols.attr('transform', (d, i) => `translate(${i * cellWidth + i * colGap},0)`);
 
 			if (shape === 'rect') {
-				cells = cols
-					.selectAll('rect.cell')
+				cols
+					.selectAll<SVGRectElement, MatrixCell>('rect.cell')
 					.data((d, colIndex) => d.map((cell, rowIndex) => ({ cell, colIndex, rowIndex })))
 					.join('rect')
 					.attr('class', (d, i, arr) => {
@@ -91,15 +90,17 @@
 					.attr('y', (d, i) => i * cellHeight + i * rowGap)
 					.attr('width', cellWidth)
 					.attr('height', cellHeight)
-					.attr('fill', function (d) {
-						return matrixColorScale(d.cell, d.colIndex);
+					.attr('fill', (d) => {
+						return isFiniteCell(d.cell)
+							? matrixColorScale(d.cell, d.colIndex)
+							: theme.colors.gray[200];
 					})
 					.on('mouseenter', onCellOver)
 					.on('mouseleave', onCellOut);
 			}
 			if (shape === 'circle') {
-				cells = cols
-					.selectAll('circle.cell')
+				cols
+					.selectAll<SVGCircleElement, MatrixCell>('circle.cell')
 					.data((d, colIndex) => d.map((cell, rowIndex) => ({ cell, colIndex, rowIndex })))
 					.join('circle')
 					.attr('class', (d, i, arr) => {
@@ -113,8 +114,8 @@
 					.attr('cy', (d, i) => i * cellHeight + i * rowGap)
 					.attr('r', cellWidth / 2)
 					.attr('stroke', theme.colors.gray[500])
-					.attr('fill', function (d, i) {
-						return matrixColorScale(d.cell, i);
+					.attr('fill', (d, i) => {
+						return isFiniteCell(d.cell) ? matrixColorScale(d.cell, i) : theme.colors.gray[200];
 					})
 					.on('mouseenter', onCellOver)
 					.on('mouseleave', onCellOut);
@@ -122,10 +123,8 @@
 		}
 
 		if (groupBy === 'row') {
-			let rows;
-
-			rows = svg
-				.selectAll('g.g-row')
+			const rows = svg
+				.selectAll<SVGGElement, MatrixRow>('g.g-row')
 				.data(data)
 				.join('g')
 				.attr('class', (d, i) => `g-row g-row-${i} row-${i}`);
@@ -137,11 +136,10 @@
 						: `translate(0,${i * cellHeight + i * rowGap})`
 				);
 
-				cells = rows
-					.selectAll('rect.cell')
+				rows
+					.selectAll<SVGRectElement, MatrixCell>('rect.cell')
 					.data((d, rowIndex) => d.map((cell, colIndex) => ({ cell, rowIndex, colIndex })))
 					.join('rect')
-					.attr('class', (d, i) => `cell row-${d.rowIndex} col-${i}`)
 					.attr('class', (d, i, arr) => {
 						const baseClass = `cell row-${d.rowIndex} col-${i}`;
 						const isLastCol = i === arr.length - 1;
@@ -155,8 +153,8 @@
 					.attr('height', transpose ? cellWidth : cellHeight)
 					.on('mouseenter', onCellOver)
 					.on('mouseleave', onCellOut)
-					.attr('fill', function (d, i) {
-						if (!Number.isFinite(d.cell)) return theme.colors.gray[200];
+					.attr('fill', (d, i) => {
+						if (!isFiniteCell(d.cell)) return theme.colors.gray[200];
 						return matrixColorScale(d.cell, i);
 					});
 			}
@@ -169,7 +167,7 @@
 
 				//To prevent the issue where the qkv path target position is misaligned due to circle scaling in Firefox
 				rows
-					.selectAll('rect.cell')
+					.selectAll<SVGRectElement, number | null>('rect.cell')
 					.data((d) => d)
 					.join('rect')
 					.attr('class', 'cell')
@@ -180,8 +178,8 @@
 					.attr('fill', 'rgba(0,0,0,0)');
 				//
 
-				cells = rows
-					.selectAll('circle.cell')
+				rows
+					.selectAll<SVGCircleElement, MatrixCell>('circle.cell')
 					.data((d, rowIndex) => d.map((cell, colIndex) => ({ cell, rowIndex, colIndex })))
 					.join('circle')
 					.attr('class', (d, i, arr) => {
@@ -194,83 +192,92 @@
 					.attr(transpose ? 'cy' : 'cx', (d, i) => cellWidth / 2 + i * cellWidth + i * colGap)
 					.attr(transpose ? 'cx' : 'cy', 0)
 					.attr('r', cellWidth / 2)
-					.attr('stroke', (d) => (!Number.isFinite(d.cell) ? 'none' : theme.colors.gray[200]))
+					.attr('stroke', (d) => (!isFiniteCell(d.cell) ? 'none' : theme.colors.gray[200]))
 					.on('mouseenter', onCellOver)
 					.on('mouseleave', onCellOut)
 					.transition()
 					.duration(100)
-					.attr('fill', function (d, i) {
-						if (!Number.isFinite(d.cell)) return theme.colors.gray[200];
+					.attr('fill', (d, i) => {
+						if (!isFiniteCell(d.cell)) return theme.colors.gray[200];
 						return matrixColorScale(d.cell, i);
 					});
 			}
 		}
 	};
 
-	$: if (data && svgEl) {
-		drawMatrixSvg(data);
+	let isDestroyed = false;
+	let animationFrame: number | undefined;
+	onDestroy(() => {
+		isDestroyed = true;
+		if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
+		if (svgEl) d3.select(svgEl).selectAll('*').interrupt();
+	});
+
+	$: if (data && svgEl && !isDestroyed) {
+		drawMatrixSvg();
 	}
 
 	// highlighting
-	let animationFrame;
 	$: {
-		cancelAnimationFrame(animationFrame);
-		animationFrame = requestAnimationFrame(() => {
-			d3.select(svgEl)
-				.selectAll(shape)
-				.attr('class', function (d) {
-					const rowIdx = d.rowIndex;
-					const colIdx = d.colIndex;
-
-					let classname;
-
-					if (highlightRow !== undefined && highlightCol !== undefined) {
-						classname =
-							rowIdx === highlightRow && colIdx === highlightCol ? 'cell highlight' : 'cell dim';
-					} else if (highlightRow === undefined && highlightCol === undefined) {
-						classname = 'cell';
-					} else if (highlightRow !== undefined) {
-						classname = rowIdx === highlightRow ? 'cell highlight' : 'cell dim';
-					} else if (highlightCol !== undefined) {
-						classname = colIdx === highlightCol ? 'cell highlight' : 'cell dim';
-					}
-					return classname;
-				});
-		});
+		if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
+		const svg = svgEl;
+		if (!svg || isDestroyed) {
+			animationFrame = undefined;
+		} else {
+			animationFrame = requestAnimationFrame(() => {
+				animationFrame = undefined;
+				if (isDestroyed || !svg.isConnected) return;
+				d3.select(svg)
+					.selectAll<SVGRectElement | SVGCircleElement, MatrixCell>(shape)
+					.attr('class', (d) => {
+						const rowIdx = d.rowIndex;
+						const colIdx = d.colIndex;
+						if (highlightRow !== undefined && highlightCol !== undefined) {
+							return rowIdx === highlightRow && colIdx === highlightCol
+								? 'cell highlight'
+								: 'cell dim';
+						}
+						if (highlightRow === undefined && highlightCol === undefined) return 'cell';
+						if (highlightRow !== undefined) {
+							return rowIdx === highlightRow ? 'cell highlight' : 'cell dim';
+						}
+						return colIdx === highlightCol ? 'cell highlight' : 'cell dim';
+					});
+			});
+		}
 	}
 
 	// tooltip
-	let tooltipData = null;
+	let tooltipData: MatrixTooltipContent | undefined = undefined;
 	let tooltipVisible = false;
 	let tooltipX = 0;
 	let tooltipY = 0;
 
-	function onCellOver(e, d) {
-		const el = this;
-		onMouseOverCell?.(e, d, el);
+	function onCellOver(this: MatrixCellElement, event: Event, data: MatrixCell) {
+		onMouseOverCell?.(event, data, this);
 
-		const tooltipData = showTooltip?.(e, d.cell);
-		if (tooltipData) visibleTooltip(e, tooltipData);
+		const content = showTooltip?.(event, data.cell);
+		if (content) visibleTooltip(event, content);
 	}
 
-	function onCellOut(e, d) {
-		const el = this;
-		onMouseOutCell?.(e, d, el);
+	function onCellOut(this: MatrixCellElement, event: Event, data: MatrixCell) {
+		onMouseOutCell?.(event, data, this);
 		hideTooltip();
 	}
 
-	function onSvgOut(e, d) {
-		onMouseOutSvg?.(e, d);
+	function onSvgOut(this: SVGSVGElement, event: Event) {
+		onMouseOutSvg?.(event, undefined, this);
 		hideTooltip();
 	}
 
-	function visibleTooltip(event, data) {
-		tooltipData = data;
-		tooltipVisible = true;
-
+	function visibleTooltip(event: Event, content: MatrixTooltipContent) {
 		const parentBbox = svgEl?.getBoundingClientRect();
-		const bbox = event.target.getBoundingClientRect();
+		const target = event.target;
+		if (!parentBbox || !(target instanceof Element)) return;
+		const bbox = target.getBoundingClientRect();
 
+		tooltipData = content;
+		tooltipVisible = true;
 		tooltipX = bbox.left + bbox.width / 2 - parentBbox.left;
 		tooltipY = bbox.top - parentBbox.top - 10;
 	}
@@ -295,8 +302,8 @@
 		>
 			{#if typeof tooltipData === 'string'}
 				{tooltipData}
-			{:else}
-				<svelte:component this={tooltipData.component} {...tooltipData?.props} />
+			{:else if tooltipData}
+				<svelte:component this={tooltipData.component} {...tooltipData.props} />
 			{/if}
 			<div
 				class="arrow pointer-events-none absolute block h-[10px] w-[10px] rotate-45 border-b border-e border-inherit bg-inherit"

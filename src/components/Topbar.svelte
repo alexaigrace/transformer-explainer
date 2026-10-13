@@ -5,11 +5,13 @@
 	import InputForm from '~/components/InputForm.svelte';
 	import { ga } from '~/utils/event';
 	import Sampling from '~/components/Sampling.svelte';
+	import LanguageToggle from '~/components/LanguageToggle.svelte';
+	import { t } from '~/i18n';
 
 	export let isActive;
 
 	// Check if current page is about page
-	$: isAboutPage = $page.url.pathname === '/about';
+	$: isAboutPage = $page.url.pathname.replace(/\/$/, '') === '/about';
 </script>
 
 <div class="top-bar flex w-full items-center gap-4 px-10 py-2 pb-3" class:active={isActive}>
@@ -24,8 +26,14 @@
 		</div>
 	</div>
 	<div class="icons flex items-center gap-3">
+		<LanguageToggle />
 		<!-- arxiv -->
-		<a href="https://arxiv.org/abs/2408.04619" target="_blank" data-click="pdf-btn">
+		<a
+			href="https://dl.acm.org/doi/pdf/10.1145/3772318.3791725"
+			target="_blank"
+			aria-label={$t('topbar.paper')}
+			data-click="pdf-btn"
+		>
 			<svg
 				class="h-6 w-6 text-gray-800 dark:text-white"
 				aria-hidden="true"
@@ -43,7 +51,12 @@
 			</svg>
 		</a>
 		<!-- video -->
-		<a href="https://www.youtube.com/watch?v=ECR4oAwocjs" target="_blank" data-click="ytb-btn">
+		<a
+			href="https://www.youtube.com/watch?v=ECR4oAwocjs"
+			target="_blank"
+			aria-label={$t('topbar.video')}
+			data-click="ytb-btn"
+		>
 			<svg
 				class="h-6 w-6 text-gray-800 dark:text-white"
 				aria-hidden="true"
@@ -64,6 +77,7 @@
 		<a
 			href="https://github.com/poloclub/transformer-explainer"
 			target="_blank"
+			aria-label={$t('topbar.repository')}
 			data-click="github_btn"
 		>
 			<svg
@@ -114,6 +128,7 @@
 				theme('colors.purple.500') 60%
 			);
 			-webkit-background-clip: text;
+			background-clip: text;
 			-webkit-text-fill-color: transparent;
 
 			.small {

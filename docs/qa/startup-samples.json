@@ -1,0 +1,114 @@
+{
+	"baseline": [
+		{
+			"cache": "cold",
+			"mountMs": 438.6,
+			"tokenizerMs": 75.5,
+			"readMs": 5101.8,
+			"initializeMs": 1013,
+			"readyMs": 6628.9
+		},
+		{
+			"cache": "warm",
+			"mountMs": 298.5,
+			"tokenizerMs": 181,
+			"readMs": 316.9,
+			"initializeMs": 1120.7,
+			"readyMs": 1917.1
+		},
+		{
+			"cache": "warm",
+			"mountMs": 218.8,
+			"tokenizerMs": 78,
+			"readMs": 384.6,
+			"initializeMs": 1325.7,
+			"readyMs": 2007.1
+		},
+		{
+			"cache": "warm",
+			"mountMs": 266,
+			"tokenizerMs": 76.3,
+			"readMs": 329.8,
+			"initializeMs": 1724.9,
+			"readyMs": 2397
+		},
+		{
+			"cache": "cold",
+			"mountMs": 432.3,
+			"tokenizerMs": 74,
+			"readMs": 4962.6,
+			"initializeMs": 1486,
+			"readyMs": 6954.9
+		},
+		{
+			"cache": "cold",
+			"mountMs": 439.3,
+			"tokenizerMs": 67.1,
+			"readMs": 4620.5,
+			"initializeMs": 1393.8,
+			"readyMs": 6520.7
+		}
+	],
+	"optimized": [
+		{
+			"cache": "cold",
+			"mountMs": 441.5,
+			"tokenizerMs": 67.60000000149012,
+			"readMs": 4773.39999999851,
+			"initializeMs": 723.3999999985099,
+			"readyMs": 6005.89999999851,
+			"cacheHits": 0,
+			"outputCount": 721
+		},
+		{
+			"cache": "warm",
+			"mountMs": 260.5,
+			"tokenizerMs": 119,
+			"readMs": 275.20000000298023,
+			"initializeMs": 808.1999999955297,
+			"readyMs": 1462.8999999985099,
+			"cacheHits": 63,
+			"outputCount": 721
+		},
+		{
+			"cache": "warm",
+			"mountMs": 257.20000000298023,
+			"tokenizerMs": 122.60000000149012,
+			"readMs": 235.39999999850988,
+			"initializeMs": 664.3999999985099,
+			"readyMs": 1279.6000000014901,
+			"cacheHits": 63,
+			"outputCount": 721
+		},
+		{
+			"cache": "warm",
+			"mountMs": 268.09999999403954,
+			"tokenizerMs": 99.80000000447035,
+			"readMs": 439,
+			"initializeMs": 627.3999999985099,
+			"readyMs": 1434.2999999970198,
+			"cacheHits": 63,
+			"outputCount": 721
+		},
+		{
+			"cache": "cold",
+			"mountMs": 435.70000000298023,
+			"tokenizerMs": 67.5,
+			"readMs": 4533.79999999702,
+			"initializeMs": 663,
+			"readyMs": 5700,
+			"cacheHits": 0,
+			"outputCount": 721
+		},
+		{
+			"cache": "cold",
+			"mountMs": 441.20000000298023,
+			"tokenizerMs": 72.60000000149012,
+			"readMs": 4556.5999999940395,
+			"initializeMs": 709.9000000059605,
+			"readyMs": 5780.30000000447,
+			"cacheHits": 0,
+			"outputCount": 721
+		}
+	]
+}

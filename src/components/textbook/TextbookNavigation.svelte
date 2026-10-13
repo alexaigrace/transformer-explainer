@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { AngleLeftOutline, AngleRightOutline } from 'flowbite-svelte-icons';
+	import AngleLeftOutline from 'flowbite-svelte-icons/AngleLeftOutline.svelte';
+	import AngleRightOutline from 'flowbite-svelte-icons/AngleRightOutline.svelte';
 	import {
 		textbookCurrentPage,
 		textbookPreviousPage,
@@ -8,22 +9,28 @@
 		userId
 	} from '~/store';
 	import type { TextbookPage } from '~/utils/textbookPages';
+	import { t } from '~/i18n';
 
 	export let textPages: TextbookPage[];
-	export let isMouseInCard: boolean = false;
-	export let isLeftSide: boolean = true;
 
 	let showPageDropdown = false;
+	let isDragging = false;
+	let progressBarElement: HTMLElement;
+	let previewProgress = 0;
 
-	function handleProgressClick(event: MouseEvent) {
-		event.stopPropagation();
-		event.preventDefault();
+	function updatePageFromPosition(clientX: number, via: string = 'progress-bar') {
+		if (!progressBarElement) return;
 
-		const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-		const clickX = event.clientX - rect.left;
-		const progressRatio = clickX / rect.width;
+		const rect = progressBarElement.getBoundingClientRect();
+		const clickX = clientX - rect.left;
+		const progressRatio = Math.max(0, Math.min(1, clickX / rect.width));
 		const targetPage = Math.floor(progressRatio * textPages.length);
 		const newPageIndex = Math.max(0, Math.min(targetPage, textPages.length - 1));
+		selectPage(newPageIndex, via);
+	}
+
+	function selectPage(newPageIndex: number, via: string) {
+		if (newPageIndex === $textbookCurrentPage) return;
 
 		textbookPreviousPageId.set($textbookCurrentPageId);
 		textbookPreviousPage.set($textbookCurrentPage);
@@ -35,31 +42,73 @@
 		window.dataLayer?.push({
 			event: `open-textbook`,
 			page_id: newPageId,
-			open_via: 'progress-bar',
+			open_via: via,
 			user_id: $userId
 		});
 	}
 
-	function navigatePage(direction: 'prev' | 'next') {
-		textbookPreviousPage.set($textbookCurrentPage);
-		textbookPreviousPageId.set($textbookCurrentPageId);
+	function handleProgressClick(event: MouseEvent) {
+		event.stopPropagation();
+		event.preventDefault();
+		updatePageFromPosition(event.clientX, 'progress-bar-click');
+	}
 
+	function handleProgressMouseDown(event: MouseEvent) {
+		event.stopPropagation();
+		event.preventDefault();
+		isDragging = true;
+	}
+
+	function handleProgressKeydown(event: KeyboardEvent) {
+		let targetPage: number;
+		switch (event.key) {
+			case 'ArrowLeft':
+			case 'ArrowDown':
+				targetPage = Math.max(0, $textbookCurrentPage - 1);
+				break;
+			case 'ArrowRight':
+			case 'ArrowUp':
+				targetPage = Math.min(textPages.length - 1, $textbookCurrentPage + 1);
+				break;
+			case 'Home':
+				targetPage = 0;
+				break;
+			case 'End':
+				targetPage = textPages.length - 1;
+				break;
+			default:
+				return;
+		}
+
+		event.preventDefault();
+		selectPage(targetPage, 'progress-bar-keyboard');
+	}
+
+	function handleGlobalMouseMove(event: MouseEvent) {
+		if (isDragging && progressBarElement) {
+			const rect = progressBarElement.getBoundingClientRect();
+			const clickX = event.clientX - rect.left;
+			const progressRatio = Math.max(0, Math.min(1, clickX / rect.width));
+			previewProgress = progressRatio;
+		}
+	}
+
+	function handleGlobalMouseUp(event: MouseEvent) {
+		if (isDragging) {
+			updatePageFromPosition(event.clientX, 'progress-bar-drag');
+			isDragging = false;
+			previewProgress = 0;
+		}
+	}
+
+	function navigatePage(direction: 'prev' | 'next') {
 		let newPageIndex: number;
 		if (direction === 'prev') {
 			newPageIndex = $textbookCurrentPage > 0 ? $textbookCurrentPage - 1 : textPages.length - 1;
 		} else {
 			newPageIndex = $textbookCurrentPage < textPages.length - 1 ? $textbookCurrentPage + 1 : 0;
 		}
-		const newPageId = textPages[newPageIndex]?.id || '';
-		textbookCurrentPageId.set(newPageId);
-		textbookCurrentPage.set(newPageIndex);
-
-		window.dataLayer?.push({
-			event: `open-textbook`,
-			page_id: newPageId,
-			open_via: 'nvigation-arrow',
-			user_id: $userId
-		});
+		selectPage(newPageIndex, 'nvigation-arrow');
 	}
 
 	function handleLeftClick(event: MouseEvent) {
@@ -78,28 +127,58 @@
 	$: showRightArrow = true;
 </script>
 
+<svelte:window on:mousemove={handleGlobalMouseMove} on:mouseup={handleGlobalMouseUp} />
+
 <!-- Navigation Footer -->
 <div class="navigation-footer">
 	<!-- Left navigation area -->
-	<div class="nav-section left" on:click={handleLeftClick} role="button" tabindex="0">
+	<button
+		type="button"
+		class="nav-section left"
+		aria-label={$t('textbook.previousPage')}
+		on:click={handleLeftClick}
+	>
 		{#if showLeftArrow}
 			<div class="nav-arrow-circle">
 				<AngleLeftOutline size="sm" />
 			</div>
 		{/if}
-	</div>
+	</button>
 
 	<!-- Center section with progress and page counter -->
 	<div class="nav-section center">
-		<div class="progress-bar" on:click={handleProgressClick} role="button" tabindex="0">
+		<div
+			class="progress-bar"
+			bind:this={progressBarElement}
+			on:click={handleProgressClick}
+			on:mousedown={handleProgressMouseDown}
+			on:keydown={handleProgressKeydown}
+			role="slider"
+			aria-label={$t('textbook.progress')}
+			aria-valuemin="1"
+			aria-valuemax={textPages.length}
+			aria-valuenow={$textbookCurrentPage + 1}
+			aria-valuetext={$t('textbook.pageCounter', {
+				current: $textbookCurrentPage + 1,
+				total: textPages.length
+			})}
+			tabindex="0"
+		>
 			<div
 				class="progress-fill"
-				style="width: {(($textbookCurrentPage + 1) / textPages.length) * 100}%"
+				class:dragging={isDragging}
+				style="width: {isDragging
+					? previewProgress * 100
+					: (($textbookCurrentPage + 1) / textPages.length) * 100}%"
 			></div>
 		</div>
 		<div class="page-counter-container">
 			<button
 				class="page-counter"
+				aria-label={$t('textbook.pageCounter', {
+					current: $textbookCurrentPage + 1,
+					total: textPages.length
+				})}
 				on:click={(e) => {
 					e.stopPropagation();
 					e.preventDefault();
@@ -117,23 +196,11 @@
 							on:click={(e) => {
 								e.stopPropagation();
 								e.preventDefault();
-								textbookPreviousPageId.set($textbookCurrentPageId);
-								textbookPreviousPage.set($textbookCurrentPage);
-
-								const newPageId = textPages[index]?.id || '';
-								textbookCurrentPageId.set(newPageId);
-								textbookCurrentPage.set(index);
+								selectPage(index, 'dropdown');
 								showPageDropdown = false;
-
-								window.dataLayer?.push({
-									event: `open-textbook`,
-									page_id: newPageId,
-									open_via: 'dropdown',
-									user_id: $userId
-								});
 							}}
 						>
-							{index + 1}. {page.title}
+							{index + 1}. {$t(page.titleKey)}
 						</button>
 					{/each}
 				</div>
@@ -142,13 +209,18 @@
 	</div>
 
 	<!-- Right navigation area -->
-	<div class="nav-section right" on:click={handleRightClick} role="button" tabindex="0">
+	<button
+		type="button"
+		class="nav-section right"
+		aria-label={$t('textbook.nextPage')}
+		on:click={handleRightClick}
+	>
 		{#if showRightArrow}
 			<div class="nav-arrow-circle">
 				<AngleRightOutline size="sm" />
 			</div>
 		{/if}
-	</div>
+	</button>
 </div>
 
 <style lang="scss">
@@ -169,6 +241,14 @@
 			height: 100%;
 			cursor: pointer;
 			transition: all 0.2s ease;
+			&.left,
+			&.right {
+				border: 0;
+				padding: 0;
+				background: transparent;
+				color: inherit;
+				font: inherit;
+			}
 			&.center {
 				flex: 0 0 auto;
 				display: flex;
@@ -185,9 +265,14 @@
 					cursor: pointer;
 					transition: all 0.2s ease;
 					position: relative;
+					user-select: none;
 
 					&:hover {
 						background: theme('colors.gray.300');
+					}
+
+					&:active {
+						cursor: grabbing;
 					}
 
 					.progress-fill {
@@ -195,6 +280,10 @@
 						background: theme('colors.blue.500');
 						border-radius: 2px;
 						transition: width 0.3s ease;
+
+						&.dragging {
+							transition: none;
+						}
 					}
 				}
 

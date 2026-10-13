@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { t } from '~/i18n';
 	import { modelMeta, tokens, rootRem } from '~/store';
 	import * as d3 from 'd3';
 	import { gsap } from '~/utils/gsap';
 	import Matrix from '~/components/common/Matrix.svelte';
+	import type { MatrixCellHandler, MatrixColorScale, MatrixSvgHandler } from '~/utils/matrixTypes';
 	import { onDestroy, onMount } from 'svelte';
 	import resolveConfig from 'tailwindcss/resolveConfig';
 	import tailwindConfig from '../../../tailwind.config';
@@ -49,38 +51,38 @@
 				.map((d) => Math.random())
 		);
 	// color scale
-	const weightColorScale = (d, i) => {
+	const weightColorScale: MatrixColorScale = (d, i) => {
 		return d3.interpolate(theme.colors['gray'][100], theme.colors['gray'][400])(d);
 	};
-	const out1ColorScale = (d, i) => {
+	const out1ColorScale: MatrixColorScale = (d, i) => {
 		return d3.interpolate(theme.colors['indigo'][100], theme.colors['indigo'][400])(d);
 	};
-	const out2ColorScale = (d, i) => {
+	const out2ColorScale: MatrixColorScale = (d, i) => {
 		return d3.interpolate(theme.colors['blue'][100], theme.colors['blue'][400])(d);
 	};
 
 	// animation
 	let isAnimationActive = false;
 	let progress = 0;
-	let timeline = gsap.timeline();
+	let timeline: GSAPTimeline = gsap.timeline();
 
+	let animationStartTimeout: ReturnType<typeof setTimeout> | undefined;
 	onMount(() => {
 		timeline.eventCallback('onUpdate', () => {
 			progress = timeline.progress();
 			if (progress === 1) isAnimationActive = false;
 		});
 
-		setTimeout(() => {
+		animationStartTimeout = setTimeout(() => {
+			animationStartTimeout = undefined;
 			isAnimationActive = true;
 			draw();
 		}, 300);
 	});
 
 	onDestroy(() => {
-		if (timeline) {
-			timeline.kill();
-			timeline = null;
-		}
+		if (animationStartTimeout !== undefined) clearTimeout(animationStartTimeout);
+		timeline.kill();
 	});
 
 	const draw = () => {
@@ -293,18 +295,23 @@
 	let highlightCol: number | undefined = undefined;
 	let highlightRow: number | undefined = undefined;
 
-	const onMouseOverCell = (e, d) => {
+	const onMouseOverCell: MatrixCellHandler = (_event, d) => {
 		if (isAnimationActive) return;
 		highlightRow = d.rowIndex;
 		highlightCol = d.colIndex;
 	};
-	const onMouseOutSvg = () => {
+	const onMouseOutSvg: MatrixSvgHandler = () => {
 		highlightCol = undefined;
 		highlightRow = undefined;
 	};
 </script>
 
-<WeightPopoverCard id="mlp-down" title={'MLP Compression'} bind:isAnimationActive {timeline}>
+<WeightPopoverCard
+	id="mlp-down"
+	title={$t('popover.mlpDown.title')}
+	bind:isAnimationActive
+	{timeline}
+>
 	<div class="mlp-weight-popover weight-popover-content flex items-center justify-start">
 		<div class="matrix flex flex-col items-center">
 			<div class="tokens" style={`gap:${tokenGap}px`}>
@@ -315,9 +322,8 @@
 		</div>
 		<div class="matrix flex flex-col items-center">
 			<div class="title flex items-center gap-1">
-				Expanded Embeddings <HelpPopover id="mlp-down-emgeddings" 
-					>{`Expanded latent vectors through MLP expansion layer.`}</HelpPopover
-				>
+				{$t('popover.expandedEmbeddingsPlain')}
+				<HelpPopover id="mlp-down-emgeddings">{$t('popover.mlpDown.embeddingsHelp')}</HelpPopover>
 			</div>
 			<div class="flex">
 				<Matrix
@@ -339,9 +345,8 @@
 		</div>
 		<div class="matrix flex flex-col items-center">
 			<div class="title flex items-center gap-1">
-				Compression Weights <HelpPopover id="mlp-down-weights" 
-					>{`Projects expanded latent vectors back to original space. \nParameters that learned in training, fixed in prediction.`}</HelpPopover
-				>
+				{$t('popover.compressionWeights')}
+				<HelpPopover id="mlp-down-weights">{$t('popover.mlpDown.weightsHelp')}</HelpPopover>
 			</div>
 			<div class="flex gap-0">
 				<Matrix
@@ -362,9 +367,8 @@
 		<div class="operator"><div class="symbol plus px-3">+</div></div>
 		<div class="matrix flex flex-col items-center">
 			<div class="title flex items-center gap-1">
-				Compression Bias <HelpPopover id="mlp-down-bias" 
-					>{`Offsets added after compression. \nParameters that learned in training, fixed in prediction.`}</HelpPopover
-				>
+				{$t('popover.compressionBias')}
+				<HelpPopover id="mlp-down-bias">{$t('popover.mlpDown.biasHelp')}</HelpPopover>
 			</div>
 			<Matrix
 				className="mlp-down-bias"
@@ -383,7 +387,7 @@
 			<div class="symbol equal px-4">=</div>
 		</div>
 		<div class="matrix flex flex-col items-center">
-			<div class="title">Compressed <br />Embeddings</div>
+			<div class="title">{@html $t('popover.compressedEmbeddings')}</div>
 			<div class="flex">
 				<Matrix
 					className="mlp-down-out"
@@ -434,9 +438,5 @@
 
 	.operator {
 		position: relative;
-	}
-	.symbol.activation {
-		font-size: 0.8rem;
-		font-weight: 500;
 	}
 </style>
